@@ -18,7 +18,7 @@ import {
 } from '@clack/prompts'
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'node:fs'
 import { resolve, join } from 'node:path'
-import { execSync } from 'node:child_process'
+import { execSync, spawnSync } from 'node:child_process'
 
 const cwd = process.cwd()
 
@@ -52,21 +52,25 @@ function appendToGitignore(lines) {
     }
 }
 
-function patchViteConfig(pluginImport, pluginCall) {
+function patchViteConfig() {
     const vitePath = join(cwd, 'vite.config.ts')
     if (!existsSync(vitePath)) {
-        console.log('  ⚠  vite.config.ts not found — add fields() to plugins manually')
+        writeFileSync(vitePath, `import { defineConfig } from 'vite'
+import { fieldsPlugin } from 'fields'
+
+export default defineConfig({
+  plugins: [fieldsPlugin()],
+})
+`)
         return
     }
     let content = readFileSync(vitePath, 'utf8')
-    // Add import if not present
     if (!content.includes("from 'fields'")) {
         content = content.replace(
             /^(import .+\n)/m,
             `import { fieldsPlugin } from 'fields'\n$1`
         )
     }
-    // Add plugin to plugins array
     if (!content.includes('fieldsPlugin')) {
         content = content.replace(
             /plugins\s*:\s*\[/,
@@ -113,6 +117,7 @@ function addNpmScripts() {
     const pkg = readJsonFile(pkgPath)
     if (!pkg) return
     pkg.scripts = pkg.scripts ?? {}
+    pkg.scripts['dev']                 = pkg.scripts['dev'] ?? 'vite'
     pkg.scripts['fields:migrate']     = 'fields migrate'
     pkg.scripts['fields:validate']    = 'fields validate'
     pkg.scripts['fields:add-user']    = 'fields add-user'
@@ -287,15 +292,13 @@ try {
 // Create the first admin user
 s.start('Creating admin account')
 try {
-    const { createDb } = await import('fields').then(m => m).catch(() => ({ createDb: null }))
-    if (createDb) {
-        const db = createDb()
-        const { hashSync } = await import('bcryptjs')
-        db.run('INSERT OR IGNORE INTO users (email, password) VALUES (?, ?)', [adminEmail, hashSync(adminPw, 12)])
-        s.stop('Admin account created')
-    } else {
-        s.stop('Run: npm run fields:add-user to create your admin account')
-    }
+    const result = spawnSync(
+        'node',
+        ['node_modules/fields/bin/fields.js', 'add-user', '--email', adminEmail.trim(), '--password', adminPw],
+        { cwd, stdio: 'pipe' }
+    )
+    if (result.status !== 0) throw new Error(result.stderr?.toString())
+    s.stop('Admin account created')
 } catch {
     s.stop('Run: npm run fields:add-user to create your admin account')
 }

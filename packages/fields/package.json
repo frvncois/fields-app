@@ -3,20 +3,24 @@
   "version": "0.0.0",
   "type": "module",
   "description": "Code-first headless CMS — Vite plugin with admin UI, API, and database",
-  "main": "./src/plugin.ts",
+  "main": "./dist/plugin.js",
+  "module": "./dist/plugin.js",
+  "types": "./dist/plugin.d.ts",
   "exports": {
-    ".": "./src/plugin.ts"
+    ".": {
+      "import": "./dist/plugin.js",
+      "types":  "./dist/plugin.d.ts"
+    }
   },
   "bin": {
     "fields": "./bin/fields.js"
   },
   "files": [
-    "src/",
     "dist/",
     "bin/"
   ],
   "scripts": {
-    "build": "vite build",
+    "build": "tsup",
     "type-check": "tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -35,6 +39,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.12.0",
     "@types/pg": "^8.0.0",
+    "tsup": "^8.5.1",
     "typescript": "~6.0.0",
     "vite": "^8.0.3"
   },

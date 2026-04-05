@@ -43,8 +43,8 @@ async function loadConfig() {
 }
 
 async function loadDb() {
-    const { createDb } = await import('../src/db.js').catch(() =>
-        import(resolve(join(cwd, 'node_modules', 'fields', 'src', 'db.js')))
+    const { createDb } = await import('../dist/db.js').catch(() =>
+        import(resolve(join(cwd, 'node_modules', 'fields', 'dist', 'db.js')))
     )
     return createDb()
 }
@@ -52,7 +52,7 @@ async function loadDb() {
 // ─── fields migrate ──────────────────────────────────────────────────────────
 
 async function migrate() {
-    const { validateConfig } = await import('../src/utils/validateConfig.js').catch(() => ({ validateConfig: () => {} }))
+    const { validateConfig } = await import('../dist/utils/validateConfig.js').catch(() => ({ validateConfig: () => {} }))
     const config = await loadConfig()
     const db = await loadDb()
 
@@ -114,7 +114,7 @@ async function migrate() {
 
 async function validate() {
     const config = await loadConfig()
-    const { validateConfig } = await import('../src/utils/validateConfig.js').catch(() => ({ validateConfig: () => {} }))
+    const { validateConfig } = await import('../dist/utils/validateConfig.js').catch(() => ({ validateConfig: () => {} }))
     try {
         validateConfig(config)
         ok('fields.config.ts is valid.')
@@ -127,6 +127,25 @@ async function validate() {
 // ─── fields add-user ─────────────────────────────────────────────────────────
 
 async function addUser() {
+    const args = process.argv.slice(3)
+    const emailIdx = args.indexOf('--email')
+    const pwIdx = args.indexOf('--password')
+    const emailArg = emailIdx !== -1 ? args[emailIdx + 1] : null
+    const pwArg = pwIdx !== -1 ? args[pwIdx + 1] : null
+
+    if (emailArg && pwArg) {
+        const db = await loadDb()
+        const { hashSync } = await import('bcryptjs')
+        try {
+            db.run('INSERT INTO users (email, password) VALUES (?, ?)', [emailArg, hashSync(pwArg, 12)])
+            ok(`User ${emailArg} created.`)
+        } catch (err) {
+            if (err.message?.includes('UNIQUE')) fail(`A user with email ${emailArg} already exists.`)
+            fail(err.message)
+        }
+        return
+    }
+
     const { text, password, isCancel, intro, outro } = await import('@clack/prompts')
     intro('  Fields — add user')
 
