@@ -7,6 +7,7 @@ import { fieldsApiPlugin } from './server/plugin'
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: '/fields',
   plugins: [
     vue(),
     ...(process.env.NODE_ENV !== 'production' ? [vueDevTools()] : []),

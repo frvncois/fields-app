@@ -2,22 +2,12 @@ import type { Req, Res, Db } from './types'
 import { json, readJson } from './types'
 import { compareSync, hashSync } from 'bcryptjs'
 import { signToken, verifyToken, tokenCookieHeader, clearCookieHeader, getBearer } from '../auth'
+import { getClientIp } from '../utils/ip'
 
 // ─── Rate limiting (login endpoint) — persisted to SQLite ────────────────────
 
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000 // 15 min
 const RATE_LIMIT_MAX = 5
-
-function getIp(req: Req): string {
-    if (process.env.FIELDS_TRUST_PROXY === 'true') {
-        const forwarded = req.headers['x-forwarded-for'] as string | undefined
-        if (forwarded) {
-            const parts = forwarded.split(',').map(s => s.trim())
-            return parts[parts.length - 1]
-        }
-    }
-    return req.socket.remoteAddress ?? 'unknown'
-}
 
 function checkLoginRateLimit(ip: string, db: Db): boolean {
     const now = Date.now()
@@ -42,7 +32,7 @@ function clearLoginRateLimit(ip: string, db: Db): void {
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 export async function handleLogin(req: Req, res: Res, db: Db): Promise<void> {
-    const ip = getIp(req)
+    const ip = getClientIp(req)
 
     if (!checkLoginRateLimit(ip, db)) {
         json(res, { error: 'Too many attempts. Try again later.' }, 429)

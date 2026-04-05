@@ -124,7 +124,9 @@ export function handleMediaList(req: Req, res: Res, db: Db): void {
     if (folderParam === 'root') {
         rows = db.prepare('SELECT * FROM media WHERE folder_id IS NULL').all()
     } else if (folderParam !== null) {
-        rows = db.prepare('SELECT * FROM media WHERE folder_id = ?').all(Number(folderParam))
+        const folderId = Number(folderParam)
+        if (isNaN(folderId)) { json(res, { error: 'Bad request' }, 400); return }
+        rows = db.prepare('SELECT * FROM media WHERE folder_id = ?').all(folderId)
     } else {
         rows = db.prepare('SELECT * FROM media').all()
     }
@@ -163,7 +165,9 @@ export async function handleMediaItem(req: Req, res: Res, db: Db, id: number): P
 export async function handleFolders(req: Req, res: Res, db: Db): Promise<void> {
     if (req.method === 'POST') {
         const body = await readJson(req)
-        const { lastInsertRowid } = db.prepare('INSERT INTO folders (name) VALUES (?)').run(String(body.name))
+        const name = typeof body.name === 'string' ? body.name.trim() : ''
+        if (!name || name.length > 100) { json(res, { error: 'Folder name must be between 1 and 100 characters' }, 400); return }
+        const { lastInsertRowid } = db.prepare('INSERT INTO folders (name) VALUES (?)').run(name)
         const row = db.prepare('SELECT f.id, f.name, 0 as count FROM folders f WHERE f.id = ?').get(lastInsertRowid)
         json(res, row, 201)
         return

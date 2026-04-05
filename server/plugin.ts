@@ -13,6 +13,7 @@ import {
     handleFolders, handleFolder,
 } from './handlers/media'
 import { json } from './handlers/types'
+import { getClientIp } from './utils/ip'
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
@@ -50,36 +51,28 @@ function handleCors(req: IncomingMessage, res: ServerResponse): boolean {
 
 // ─── Per-IP rate limiting for authenticated endpoints ────────────────────────
 
-const authRateLimits = new Map<string, { count: number; resetAt: number }>()
 const AUTH_RATE_WINDOW = 60_000 // 1 minute
 const AUTH_RATE_MAX = 300
+const AUTH_RATE_KEY_PREFIX = 'auth:'
 
-function getClientIp(req: IncomingMessage): string {
-    if (process.env.FIELDS_TRUST_PROXY === 'true') {
-        const forwarded = req.headers['x-forwarded-for'] as string | undefined
-        if (forwarded) {
-            const parts = forwarded.split(',').map(s => s.trim())
-            return parts[parts.length - 1]
-        }
-    }
-    return req.socket.remoteAddress ?? 'unknown'
-}
-
-function checkAuthRateLimit(req: IncomingMessage, res: ServerResponse): boolean {
-    const ip = getClientIp(req)
+function checkAuthRateLimit(req: IncomingMessage, res: ServerResponse, db: ReturnType<typeof createDb>): boolean {
+    const ip = AUTH_RATE_KEY_PREFIX + getClientIp(req)
     const now = Date.now()
-    const entry = authRateLimits.get(ip)
-    if (!entry || now > entry.resetAt) {
-        authRateLimits.set(ip, { count: 1, resetAt: now + AUTH_RATE_WINDOW })
+    const row = db.prepare('SELECT count, reset_at FROM _rate_limits WHERE ip = ?').get(ip) as
+        { count: number; reset_at: string } | undefined
+    if (!row || now > Number(row.reset_at)) {
+        db.prepare(
+            'INSERT INTO _rate_limits (ip, count, reset_at) VALUES (?, 1, ?) ON CONFLICT(ip) DO UPDATE SET count = 1, reset_at = excluded.reset_at'
+        ).run(ip, String(now + AUTH_RATE_WINDOW))
         return true
     }
-    if (entry.count >= AUTH_RATE_MAX) {
-        const retryAfter = Math.ceil((entry.resetAt - now) / 1000)
+    if (row.count >= AUTH_RATE_MAX) {
+        const retryAfter = Math.ceil((Number(row.reset_at) - now) / 1000)
         res.setHeader('Retry-After', String(retryAfter))
         json(res, { error: 'Too many requests' }, 429)
         return false
     }
-    entry.count++
+    db.prepare('UPDATE _rate_limits SET count = count + 1 WHERE ip = ?').run(ip)
     return true
 }
 
@@ -119,7 +112,7 @@ async function dispatch(req: IncomingMessage, res: ServerResponse, db: ReturnTyp
     }
 
     // [H3] Rate limit all other requests
-    if (!checkAuthRateLimit(req, res)) return
+    if (!checkAuthRateLimit(req, res, db)) return
 
     // Auth guard
     const token = getBearer(req)
