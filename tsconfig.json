@@ -1,11 +1,7 @@
 {
   "files": [],
   "references": [
-    {
-      "path": "./tsconfig.node.json"
-    },
-    {
-      "path": "./tsconfig.app.json"
-    }
+    { "path": "./packages/fields-admin/tsconfig.json" },
+    { "path": "./packages/fields/tsconfig.json" }
   ]
 }

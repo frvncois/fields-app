@@ -2,143 +2,109 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Monorepo layout
+
+```
+fields-app/
+  packages/
+    fields/           # npm package — Vite plugin, API server, DB/storage adapters
+    fields-admin/     # Vue 3 SPA — admin UI (builds into packages/fields/dist/admin/)
+    create-fields-cms/ # npm init wizard — `npm create fields-cms`
+  fields.config.ts    # User's collection schema (dev only, not shipped)
+  fields.db           # SQLite database (dev only)
+```
+
 ## Commands
 
 ```bash
-npm install          # Install dependencies
-npm run dev          # Start dev server (Vite HMR)
-npm run build        # Type-check + production build
-npm run type-check   # Run vue-tsc type checking only
-npm run build-only   # Production build without type check
-npm run preview      # Preview production build locally
+npm install                          # Install all workspace dependencies
+npm run dev                          # Start fields-admin dev server (Vite HMR)
+npm run build                        # Build fields-admin then fields package
+npm run type-check                   # vue-tsc (admin) + tsc (fields runtime)
+
+# Per-package
+npm run dev      -w packages/fields-admin
+npm run build    -w packages/fields-admin   # outputs to packages/fields/dist/admin/
+npm run build    -w packages/fields
+npm run type-check -w packages/fields-admin
+npm run type-check -w packages/fields
 ```
 
 No linting or test runner is configured.
 
-## Architecture
+## packages/fields — Vite plugin & runtime
 
-Vue 3 SPA using Vite, TypeScript, and Vue Router. This is a headless CMS called "Fields". The Vite base is `/fields`, so the admin UI is served at `/fields` and all asset paths are relative to that.
+**`src/plugin.ts`** — Entry point. Exports `fieldsPlugin(options?: FieldsOptions): Plugin[]` — an array of two Vite plugins:
 
-**Entry & global setup (`src/main.ts`)** — Fonts must be imported here as JS imports (not CSS `@import`) to avoid Vite/postcss resolution failures. Lenis smooth scroll is initialized here. `validateConfig(config)` is called at boot (from `src/utils/validateConfig.ts`) and throws if the config has duplicate field keys.
+1. `fields-virtual-config` — resolves `virtual:fields-config` to the serialized user config JSON. Handles HMR: reloads the config when `fields.config.ts` changes.
+2. `fields-api` — on `configureServer`: initialises DB + storage + user config, serves the pre-built admin SPA from `dist/admin/` at `/fields/*` (injects `window.__FIELDS_CONFIG__` into HTML), and dispatches all `/api/fields/*` requests.
 
-**Routing (`src/router/index.ts`)** — Five named routes: `setup`, `login`, `dashboard`, `editor`, `list`. The async `beforeEach` guard hits `GET /api/fields/setup` on the first navigation to check whether any users exist. If `needsSetup` is true, all routes redirect to `setup`. Call `markSetupComplete()` (exported from the router) after the setup form succeeds to reset the cache without a page reload.
-
-**Layout (`src/layouts/LayoutApp.vue`)** — CSS grid with `var(--nav-width)` and `var(--header-height)` custom properties defined in `src/assets/global.css`. `SharedNav` spans both grid rows. Global sheets (`SheetSettings`, `SheetStorage`), modals (`ModalAlert`, `ModalConvert`), and `UiToast` are mounted here at root level.
-
-**Backend (`server/plugin.ts`)** — A Vite plugin that intercepts all `/api/fields/*` requests and dispatches to handlers in `server/handlers/`. Request order in `dispatch()`:
+Request dispatch order in `dispatch()`:
 1. Security headers + CORS (every request)
-2. `GET/POST /setup` — always public, no auth
-3. Users-exist guard — returns `{ needsSetup: true }` (403) if the `users` table is empty
-4. `POST /auth/login` — public, login-specific rate limiter (5 attempts / 15 min, SQLite)
-5. General rate limiter — 300 req/min per IP, persisted to `_rate_limits` (key prefix `auth:`)
-6. JWT verification — reads `fields_token` httpOnly cookie, checks `_token_revocations`
-7. Route dispatch to handlers
+2. `GET/POST /setup` — always public
+3. Users-exist guard — `{ needsSetup: true }` (403) if `users` table is empty
+4. `POST /auth/login` — public, login rate limiter (5 attempts / 15 min, SQLite)
+5. General rate limiter — 300 req/min per IP, `_rate_limits` table (key prefix `auth:`)
+6. JWT verification — httpOnly cookie `fields_token`, checks `_token_revocations` for jti
+7. Route handlers
 
-**`server/auth.ts`** — JWT helpers. Tokens are 1-day JWTs with a `jti` (UUID) claim, signed with `FIELDS_JWT_SECRET`. In development, the secret is `randomBytes(32)` per process. In production, `FIELDS_JWT_SECRET` must be set or the process throws at startup. Cookie helpers: `tokenCookieHeader(token)` (HttpOnly; SameSite=Strict; Secure in production), `clearCookieHeader()` (Max-Age=0), `getBearer(req)` (reads the cookie).
+**`src/types.ts`** — `FieldsConfig`, `FieldDef`, `FieldValues`, `CollectionSchema`, `FieldType`, `FieldsOptions`, `DatabaseAdapter`, `StorageAdapter`, `Migration`.
 
-**`server/db.ts`** — Creates the SQLite DB at `fields.db` (overridable via `FIELDS_DB_PATH`). Runs `createSchema` then `runMigrations` then `seedIfEmpty` on every startup. Internal tables not exposed to the API: `_migrations`, `_rate_limits`, `_token_revocations`. No users are seeded — the setup wizard creates the first admin.
+**`src/auth.ts`** — `signToken`, `verifyToken`, `getBearer` (reads httpOnly cookie). Tokens are 1-day JWTs with a `jti` UUID claim. In production, `FIELDS_JWT_SECRET` must be set or startup throws. Cookie is `HttpOnly; SameSite=Strict; Secure` in production.
 
-**`server/utils/ip.ts`** — Single `getClientIp(req)` implementation shared by both `server/plugin.ts` and `server/handlers/auth.ts`. Uses `socket.remoteAddress` by default; reads the rightmost `X-Forwarded-For` value when `FIELDS_TRUST_PROXY=true`.
+**`src/db.ts`** — Creates SQLite DB at `fields.db` (override via `FIELDS_DB_PATH`). Runs `createSchema` → `migrate` → `seedIfEmpty` on every startup. Internal tables: `_migrations`, `_rate_limits`, `_token_revocations`. No users seeded — setup wizard creates first admin.
 
-**`server/handlers/`** — One file per resource: `auth`, `collections`, `entries`, `locales`, `media`, `settings`, `setup`, `types`. `types.ts` exports `Req`, `Res`, `Db`, `json()`, and `readJson()` (enforces 1 MB body limit; throws with `{ status: 413 }` on breach, caught by the plugin's error wrapper).
+**`src/utils/ip.ts`** — Single `getClientIp(req)` shared by plugin and auth handler. Uses `socket.remoteAddress`; reads rightmost `X-Forwarded-For` when `FIELDS_TRUST_PROXY=true`.
 
-## Component conventions
+**`src/handlers/`** — One file per resource: `auth`, `collections`, `entries`, `locales`, `media`, `settings`, `setup`. `types.ts` exports `Req`, `Res`, `Db`, `Storage`, `json()`, `readJson()` (1 MB body limit, throws `{ status: 413 }` on breach).
 
-**`src/components/ui/`** — Primitive UI components (`UiButton`, `UiInput`, `UiSheet`, `UiTable`, etc.). Use `defineModel` for two-way binding, `defineProps` with TypeScript generics (no `withDefaults`).
+**`src/adapters/db/`** — `sqlite.ts` (SQLiteAdapter, default), `postgres.ts` (PgAdapter), `turso.ts` (TursoAdapter). Postgres and Turso are async; their sync interface methods (`get`, `query`, `run`, `exec`, `migrate`) throw — use the `*Async()` variants instead.
 
-**`src/components/shared/`** — App-specific composed components (`SharedNav`, `SharedHeader`, `AppActions`, `AppBreadcrumbs`). `AppActions` is route-aware and renders different buttons based on `route.name`.
+**`src/adapters/storage/`** — `local.ts` (LocalAdapter, default), `s3.ts`, `supabase.ts`, `vercel.ts`, `netlify.ts`, `firebase.ts`. All optional providers use dynamic `import()` so the package doesn't fail when the provider SDK isn't installed.
 
-**`src/components/modal/`** — Modal content components (`ModalAlert`, `ModalConvert`). Each wraps `UiModal` and pulls state from its own composable (`useAlerts`, `useConvert`).
+**`bin/fields.js`** — CLI: `migrate`, `validate`, `add-user`, `remove-user` commands.
 
-**`src/components/sheet/`** — Slide-in panel content components (`SheetSettings`, `SheetStorage`). Each wraps `UiSheet` and pulls state from its own composable (`useSettingsSheet`, `useStorage`).
+## packages/fields-admin — Vue 3 SPA
 
-**`src/components/editor/`** — `EditorSidebar` uses `defineModel` for `published`, `metaTitle`, `metaDescription`, `slug` — wired from `useEditorState` in `EditorView`. The sidebar uses `align-self: start` + `position: sticky; top: var(--header-height)` to stick below the header.
+Vue 3, Vite, TypeScript, Vue Router. Builds to `../fields/dist/admin/` with `base: '/fields'`.
 
-**`src/components/ui/items/`** — Row-level item components rendered inside list/table containers.
+**`src/main.ts`** — Fonts imported as JS (not CSS `@import`) to avoid Vite/postcss failures. Lenis smooth scroll initialised here. `validateConfig(config)` called at boot.
 
-**`src/assets/icons/`** — Custom SVG Vue components, all using `stroke="currentColor"`. Use Heroicons (`@heroicons/vue/24/outline`, `/20/solid`, `/16/solid`) for standard icons; custom icons in `src/assets/icons/` for app-specific shapes.
+**`src/router/index.ts`** — Five named routes: `setup`, `login`, `dashboard`, `editor`, `list`. The async `beforeEach` guard calls `GET /api/fields/setup`; if `needsSetup` is true, all routes redirect to `setup`. Call `markSetupComplete()` after setup form success to reset without a page reload.
 
-## API layer (`src/api/`)
+**`virtual:fields-config`** — In dev, the virtual module re-exports the user's actual `fields.config.ts`. In production, it exports `window.__FIELDS_CONFIG__` (injected into `<head>` by the plugin when serving the HTML). Declared in `env.d.ts`.
 
-`src/api/client.ts` is the HTTP foundation — use `apiFetch` for all API calls. Auth is cookie-based (httpOnly `fields_token` set by the server); `apiFetch` always passes `credentials: 'include'`. On 401, clears the local auth hint and redirects to `/login`. **Exception:** `src/api/auth.ts` `login()` uses raw `fetch` — the login call is the one unauthenticated bootstrap request, and using `apiFetch` would cause a redirect loop.
+**`src/api/client.ts`** — Use `apiFetch` for all API calls (`credentials: 'include'`). On 401, clears auth hint and redirects to `/login`. Auth hint (`fields_auth` localStorage flag) is non-sensitive — the actual credential is the httpOnly cookie. Exception: `src/api/auth.ts` `login()` uses raw `fetch` to avoid a redirect loop.
 
-Auth hint helpers in `client.ts`: `hasAuthHint()`, `setAuthHint()`, `clearAuthHint()`. These are a non-sensitive `fields_auth` localStorage flag used only for the client-side router guard. The server httpOnly cookie is the actual credential — if the cookie is gone but the hint remains, the first 401 from any `apiFetch` call clears the hint and redirects.
+**Global state** — Composables in `src/composables/` use module-level refs (outside the function) for shared singleton state. No Pinia.
 
-Each resource has its own module (`auth.ts`, `entries.ts`, `media.ts`, `settings.ts`, etc.) that calls `apiFetch`. Always check `res.ok` before reading the response body.
+Key composables:
+- `useEntries` / `useEntry` — list and single-entry state
+- `useEditorState` — editor form; `save()` derives `status` from `published.value` internally; SEO fields are writable computeds over `fieldValues['_metaTitle']` etc.
+- `useAlerts` — `confirm(opts)` / `prompt(opts)`, returns a Promise. `variant: 'danger'` shows TrashIcon.
+- `useToast` — `toast(message, type)`, auto-dismisses after 4 s.
 
-## Global state pattern
+**`EditorField` data flow** — Receives `:values` (FieldValues), emits `update:values` with a new object. Never mutates the prop. Repeater sub-fields follow the same pattern recursively.
 
-Composables in `src/composables/` that manage UI state use **module-level refs** (declared outside the function) so state is shared as a singleton across all consumers — no Pinia needed for simple open/close state.
+**Component conventions:**
+- `src/components/ui/` — primitives (`UiButton`, `UiInput`, `UiSheet`, `UiTable`, …). `defineModel` for two-way binding; `defineProps` with TypeScript generics, no `withDefaults`.
+- `src/components/shared/` — app-specific (`SharedNav`, `SharedHeader`, `AppActions`, `AppBreadcrumbs`). `AppActions` is route-aware.
+- `src/components/modal/` — wraps `UiModal`, pulls state from own composable.
+- `src/components/sheet/` — wraps `UiSheet`, pulls state from own composable.
+- `UiModal` — `Teleport` + `Transition`. Props: `open`. Emits: `close`. Closes on backdrop mousedown.
+- `UiSheet` — `Teleport` + `Transition`. `anchor="nav"` slides from left (z-50, under SharedNav at z-60); `anchor="right"` (default) slides from right. Closes on outside mousedown/focusin or route change.
+- `UiButton variant` — `'default' | 'ghost' | 'outline' | 'danger'`.
+- Icons — Heroicons (`@heroicons/vue/24/outline`, `/20/solid`, `/16/solid`) for standard; custom SVG components in `src/assets/icons/` (`stroke="currentColor"`) for app-specific shapes.
 
-```ts
-const isOpen = ref(false)  // module-level = shared singleton
+## packages/create-fields-cms — init wizard
 
-export function useMySheet() {
-    return { isOpen, open: () => { isOpen.value = true }, close: () => { isOpen.value = false } }
-}
-```
-
-**`useEntries`** — list state (`entries`, `loading`, `fetchAll`, `fetchByCollection`, `remove`). Used by `ListView`.
-
-**`useEntry`** — single-entry state (`currentEntry`, `loading`, `fetchById`, `clear`). Used by `EditorView` and `AppBreadcrumbs`. Exported from the same file as `useEntries`.
-
-**`useEditorState`** — editor form state. Exposes `title`, `fieldValues`, `published`, `metaTitle`, `metaDescription`, `slug` (the SEO fields are writable computeds that read/write `fieldValues['_metaTitle']` etc.). Call `save()` — it derives `status` from `published.value` internally.
-
-**`useAlerts`** — Modal confirm/prompt system. Call `confirm(opts)` or `prompt(opts)` anywhere; returns a Promise resolved when the user responds. `variant: 'danger'` shows a `TrashIcon` in the modal body.
-
-**`useToast`** — Fire-and-forget toasts. Call `toast(message, type)` with type `'default' | 'success' | 'error'`. Auto-dismisses after 4 s.
-
-## EditorField data flow
-
-`EditorField` receives `:values` (a `FieldValues` object) and emits `update:values` with a new object on every change — it never mutates the prop directly. The parent (`EditorView`) handles it:
-
-```vue
-<EditorField :field="field" :values="fieldValues" @update:values="fieldValues = $event" />
-```
-
-Repeater sub-fields follow the same pattern recursively, with `updateRow(i, $event)` in the repeater.
-
-## UiModal
-
-Generic modal shell using `Teleport` + `Transition`. Props: `open: boolean`. Emits: `close`. Closes on backdrop mousedown. Use `ModalAlert`/`ModalConvert` as reference for the content slot pattern.
-
-## UiSheet
-
-Generic slide-in panel using `Teleport` + `Transition`. Closes on mousedown/focusin outside the sheet element, and on any route change.
-
-- `anchor="nav"` — slides from left, positioned at `left: var(--nav-width)`, z-index 50 (under `SharedNav` at z-index 60)
-- `anchor="right"` (default) — slides from right at `right: 0`
-- No backdrop/overlay
-
-## UiButton variants
-
-`variant?: 'default' | 'ghost' | 'outline' | 'danger'` — `danger` uses `var(--color-danger)` background with white text.
-
-## Reusable composables
-
-- **`useSort<T>`** — Generic sort state. Call `toggleSort(key)` from column headers, pass items through `applySorting(items)`. Items must be `Record<string, string>`.
-- **`useFilters(defs)`** — Declarative filter definitions (`search` | `select` types) with a reactive `values` object. Pass `defs` and `values` to `UiFilters` for rendering.
+`bin/create.js` — interactive `npm create fields-cms` wizard. Steps: project name → framework detection → DB selection (SQLite / Postgres / Turso) → storage selection (7 providers) → credential collection → `.env` write → `fields.config.ts` generation → `vite.config.ts` patch → `.gitignore` update → npm install → migration → admin user creation → summary.
 
 ## Environment variables
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `FIELDS_JWT_SECRET` | **Yes in production** | random per-process | JWT signing key; startup throws if missing in production |
-| `FIELDS_TRUST_PROXY` | No | — | Set to `true` to read the rightmost X-Forwarded-For IP |
-| `FIELDS_ALLOWED_ORIGINS` | No | — | Comma-separated list of CORS origins |
-| `FIELDS_DB_PATH` | No | `./fields.db` | Path to the SQLite database file |
-
-## Dependency notes
-
-Server-only packages (used only in `server/` — Node.js runtime via the Vite plugin):
-- `better-sqlite3` — SQLite database
-- `busboy` — multipart file upload parsing
-- `bcryptjs` — password hashing (cost factor 12 everywhere)
-- `jsonwebtoken` — JWT signing/verification
-- `image-size` — server-side image dimension extraction for uploaded files
-
-Client packages (bundled into the frontend):
-- `vue`, `vue-router` — framework
-- `@tiptap/*` — rich text editor
-- `@heroicons/vue` — icons
-- `lenis` — smooth scroll
+| `FIELDS_JWT_SECRET` | **Yes in production** | random per-process | JWT signing key |
+| `FIELDS_TRUST_PROXY` | No | — | `true` → read rightmost X-Forwarded-For |
+| `FIELDS_ALLOWED_ORIGINS` | No | — | Comma-separated CORS origins |
+| `FIELDS_DB_PATH` | No | `./fields.db` | SQLite file path |
