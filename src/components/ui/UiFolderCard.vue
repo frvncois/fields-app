@@ -67,7 +67,7 @@ function onDrop(e: DragEvent) {
 .item {
     display: flex;
     flex-direction: column;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-md);
     border: 1px solid var(--color-border);
     overflow: hidden;
     background: var(--color-background);

@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { getLocales } from '@/api/locales'
+import { getLocales, setLocale } from '@/api/locales'
 import type { Locale } from '@/api/locales'
 
 export type { Locale }
@@ -13,5 +13,9 @@ export function useLocales() {
         getLocales().then((data) => { locales.value = data })
     }
 
-    return { locales }
+    async function switchLocale(code: string) {
+        locales.value = await setLocale(code)
+    }
+
+    return { locales, switchLocale }
 }

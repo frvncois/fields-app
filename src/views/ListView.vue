@@ -42,6 +42,7 @@ watch(
             v-else
             :items="entries"
             :can-add="canAdd"
+            :initial-type="route.query.type ? String(route.query.type) : undefined"
             @add="router.push({ name: 'editor', query: { collection: route.params.id } })"
             @deleted="remove($event)"
         />

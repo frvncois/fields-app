@@ -14,11 +14,12 @@ type Item = {
     category: 'page' | 'collection' | 'object'
     status: 'draft' | 'published'
     updatedAt: string
+    ogImage?: string
 }
 
 type SortKey = 'title' | 'type' | 'status' | 'updatedAt'
 
-const props = defineProps<{ items: Item[]; canAdd?: boolean }>()
+const props = defineProps<{ items: Item[]; canAdd?: boolean; initialType?: string }>()
 const emit = defineEmits<{ add: []; deleted: [id: number] }>()
 
 const { values } = useFilters([
@@ -26,6 +27,8 @@ const { values } = useFilters([
     { key: 'type', type: 'select', placeholder: 'All types', options: [] },
     { key: 'status', type: 'select', placeholder: 'All statuses', options: [] },
 ])
+
+if (props.initialType) values.type = props.initialType
 
 const typeOptions = computed(() => {
     const seen = new Set<string>()
@@ -105,6 +108,7 @@ const columns: { label: string; key: SortKey }[] = [
                 :category="item.category"
                 :status="item.status"
                 :updated-at="item.updatedAt"
+                :og-image="item.ogImage"
                 @deleted="emit('deleted', $event)"
             />
         </div>
@@ -116,11 +120,12 @@ const columns: { label: string; key: SortKey }[] = [
 .table {
     display: flex;
     flex-direction: column;
+    gap: var(--space-md);
 
     .header {
         display: grid;
-        grid-template-columns: 8fr 3fr 3fr 4fr 1fr;
-        padding: 0 var(--space-lg);
+        grid-template-columns: 8fr 3fr 3fr 3fr 1fr;
+        padding: 0 var(--space-sm);
 
         .col {
             display: flex;
@@ -148,6 +153,7 @@ const columns: { label: string; key: SortKey }[] = [
             }
 
             &:hover .chevron.idle { opacity: 0.5; }
+            &:nth-child(n+2) { justify-content: flex-end; }
         }
     }
 

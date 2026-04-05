@@ -41,6 +41,11 @@ export function useEditorState() {
         return data.id ?? null
     }
 
+    const ogImage = computed<string>({
+        get: () => String(fieldValues.value['_ogImage'] ?? ''),
+        set: (v) => { fieldValues.value['_ogImage'] = v },
+    })
+
     const metaTitle = computed<string>({
         get: () => String(fieldValues.value['_metaTitle'] ?? ''),
         set: (v) => { fieldValues.value['_metaTitle'] = v },
@@ -56,5 +61,5 @@ export function useEditorState() {
         set: (v) => { fieldValues.value['_slug'] = v },
     })
 
-    return { title, collectionId, entryId, fieldValues, published, metaTitle, metaDescription, slug, save, setEntry, reset }
+    return { title, collectionId, entryId, fieldValues, published, ogImage, metaTitle, metaDescription, slug, save, setEntry, reset }
 }

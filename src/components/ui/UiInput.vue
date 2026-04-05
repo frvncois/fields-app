@@ -54,7 +54,7 @@ const model = defineModel<string>()
 
     input {
       outline: none;
-      border-radius: var(--radius-sm);
+      border-radius: var(--radius-md);
       font-family: inherit;
       width: 100%;
       box-sizing: border-box;

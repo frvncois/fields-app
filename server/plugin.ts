@@ -3,10 +3,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createDb } from './db'
 import { verifyToken, getBearer } from './auth'
 import { handleLogin, handleChangePassword } from './handlers/auth'
-import { handleEntries, handleEntry, handleCollectionEntries } from './handlers/entries'
+import { handleEntries, handleEntry, handleCollectionEntries, handleTranslateEntry } from './handlers/entries'
 import { handleCollections } from './handlers/collections'
 import { handleSettings } from './handlers/settings'
-import { handleLocales } from './handlers/locales'
+import { handleLocales, handleSetLocale } from './handlers/locales'
 import {
     handleMediaUpload, handleMediaList, handleMediaItem,
     handleFolders, handleFolder,
@@ -48,6 +48,9 @@ export function fieldsApiPlugin(): Plugin {
                 const entryMatch = path.match(/^\/entries\/(\d+)$/)
                 if (entryMatch) return handleEntry(req, res, db, Number(entryMatch[1]))
 
+                const translateMatch = path.match(/^\/entries\/(\d+)\/translate\/([a-z]{2,5})$/)
+                if (translateMatch) return handleTranslateEntry(req, res, db, Number(translateMatch[1]), translateMatch[2])
+
                 if (path === '/collections' || path === '/collections/') return handleCollections(req, res, db)
 
                 const colEntriesMatch = path.match(/^\/collections\/(\d+)\/entries$/)
@@ -58,6 +61,9 @@ export function fieldsApiPlugin(): Plugin {
                 if (path === '/auth/password' && req.method === 'PATCH') return handleChangePassword(req, res, db)
 
                 if (path === '/locales' || path === '/locales/') return handleLocales(req, res, db)
+
+                const localeMatch = path.match(/^\/locales\/([a-z]{2,5})$/)
+                if (localeMatch) return handleSetLocale(req, res, db, localeMatch[1])
 
                 if (path === '/media/upload' && req.method === 'POST') return handleMediaUpload(req, res, db)
                 if (path === '/media' || path === '/media/') return handleMediaList(req, res, db)

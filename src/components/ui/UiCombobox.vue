@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
 import { ref, onMounted, onUnmounted } from 'vue'
-import { EllipsisHorizontalIcon } from '@heroicons/vue/20/solid'
+import { EllipsisHorizontalIcon, ChevronDownIcon } from '@heroicons/vue/20/solid'
 
 export type ComboboxItem = {
     icon?: Component
@@ -10,7 +10,7 @@ export type ComboboxItem = {
     variant?: 'default' | 'danger'
 }
 
-defineProps<{ items: ComboboxItem[] }>()
+defineProps<{ items: ComboboxItem[]; label?: string }>()
 
 const open = ref(false)
 const wrapperEl = ref<HTMLElement | null>(null)
@@ -38,8 +38,12 @@ function run(item: ComboboxItem, e: MouseEvent) {
 
 <template>
     <div ref="wrapperEl" class="combobox">
-        <button class="trigger" @click="toggle">
-            <EllipsisHorizontalIcon />
+        <button class="trigger" :class="{ 'has-label': label }" @click="toggle">
+            <template v-if="label">
+                {{ label }}
+                <ChevronDownIcon class="chevron" />
+            </template>
+            <EllipsisHorizontalIcon v-else />
         </button>
 
         <Transition name="dropdown">
@@ -68,13 +72,13 @@ function run(item: ComboboxItem, e: MouseEvent) {
 
     .trigger {
         height: var(--size-md);
-        aspect-ratio: 1/1;
+        aspect-ratio: 1;
         display: flex;
         align-items: center;
         justify-content: center;
         border: none;
         background: transparent;
-        border-radius: var(--radius-sm);
+        border-radius: var(--radius-md);
         cursor: pointer;
         opacity: 0.4;
         transition: opacity 0.1s, background 0.1s;
@@ -87,6 +91,28 @@ function run(item: ComboboxItem, e: MouseEvent) {
         svg {
             height: var(--size-base);
             aspect-ratio: 1/1;
+        }
+
+        &.has-label {
+            height: auto;
+            aspect-ratio: unset;
+            opacity: 1;
+            padding: var(--space-sm) var(--space-md);
+            gap: var(--space-xs);
+            font-size: var(--size-sm);
+            font-family: inherit;
+            color: inherit;
+            border: 1px solid var(--color-border);
+            white-space: nowrap;
+
+            .chevron {
+                height: var(--size-sm);
+                aspect-ratio: 1/1;
+                flex-shrink: 0;
+                opacity: 0.5;
+            }
+
+            &:hover { background: var(--color-hover); }
         }
     }
 

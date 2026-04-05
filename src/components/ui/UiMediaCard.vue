@@ -14,12 +14,14 @@ const props = defineProps<{
     dimensions: string
     type: string
     folderId?: number | null
+    selectable?: boolean
 }>()
 
 const emit = defineEmits<{
     move: [folderId: number | null]
     deleted: [id: number]
     convert: []
+    pick: [url: string]
 }>()
 
 const { confirm } = useAlerts()
@@ -57,10 +59,11 @@ async function handleDelete() {
 <template>
     <div
         class="item"
-        :class="{ dragging: isDragging }"
+        :class="{ dragging: isDragging, selectable }"
         draggable="true"
         @dragstart="onDragStart"
         @dragend="onDragEnd"
+        @click="selectable && emit('pick', url)"
     >
         <div class="preview">
             <img :src="url" :alt="title" draggable="false" />
@@ -72,7 +75,7 @@ async function handleDelete() {
                 <span>{{ dimensions }}</span>
             </div>
         </div>
-        <div class="actions">
+        <div class="actions" @click.stop>
             <UiButton
                 dim
                 variant="ghost"
@@ -115,19 +118,24 @@ async function handleDelete() {
 .item {
     display: flex;
     flex-direction: column;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-md);
     border: 1px solid var(--color-border);
     background: var(--color-background);
     cursor: grab;
+    overflow: hidden;
 
     &.dragging { opacity: 0.4; cursor: grabbing; }
+
+    &.selectable {
+        cursor: pointer;
+        &:hover { border-color: var(--color-foreground); }
+    }
 
     .preview {
         width: 100%;
         aspect-ratio: 4 / 3;
         background: var(--color-hover);
         overflow: hidden;
-        border-radius: var(--radius-sm) var(--radius-sm) 0 0;
 
         img {
             width: 100%;

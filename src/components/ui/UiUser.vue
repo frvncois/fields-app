@@ -39,7 +39,7 @@ const initials = computed(() => `${props.firstName[0]}${props.lastName[0]}`.toUp
     flex-direction: column;
     gap: var(--gap-md);
     padding: var(--space-base);
-    background: var(--color-hover);
+    background: var(--color-background);
     border-radius: var(--radius-lg);
 
     .info {

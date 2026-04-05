@@ -10,6 +10,9 @@ export type Entry = {
     createdAt: string
     updatedAt: string
     collectionName: string
+    ogImage?: string
+    locale: string
+    translationKey?: string
     data?: Record<string, unknown>
 }
 
@@ -44,6 +47,22 @@ export async function createEntry(data: { collectionId: number; title: string; s
 export async function updateEntry(id: number, data: { title: string; status: string; data: Record<string, unknown> }): Promise<Entry> {
     const res = await apiFetch(`/api/field/entries/${id}`, {
         method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    })
+    if (!res.ok) throw new Error(`${res.status}`)
+    return res.json()
+}
+
+export async function createTranslation(id: number, locale: string): Promise<Entry> {
+    const res = await apiFetch(`/api/field/entries/${id}/translate/${locale}`, { method: 'POST' })
+    if (!res.ok) throw new Error(`${res.status}`)
+    return res.json()
+}
+
+export async function patchEntry(id: number, data: { status: 'draft' | 'published' }): Promise<Entry> {
+    const res = await apiFetch(`/api/field/entries/${id}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
     })

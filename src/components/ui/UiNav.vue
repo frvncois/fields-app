@@ -119,7 +119,7 @@ function onChildClick(child: ItemChild) {
             text-overflow: ellipsis;
             white-space: nowrap;
             font-size: var(--size-sm);
-            opacity: 0.33;
+            opacity: 0.75;
             transition: opacity 0.1s;
         }
 
@@ -156,7 +156,8 @@ function onChildClick(child: ItemChild) {
         display: flex;
         flex-direction: column;
         gap: var(--space-xs);
-        padding-left: var(--space-lg);
+        border: 1px solid var(--color-border-var);
+        border-radius: var(--radius-md);
 
         li {
             border-radius: var(--radius-sm);

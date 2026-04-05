@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { DocumentTextIcon, NewspaperIcon, PaperClipIcon, PencilIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import { relativeTime } from '@/utils/time'
+import { DocumentTextIcon, NewspaperIcon, PaperClipIcon, PencilIcon, TrashIcon, EyeIcon, EyeSlashIcon } from '@heroicons/vue/24/outline'
 import UiCombobox from '@/components/ui/UiCombobox.vue'
 import type { ComboboxItem } from '@/components/ui/UiCombobox.vue'
 import { useAlerts } from '@/composables/useAlerts'
 import { useToast } from '@/composables/useToast'
-import { deleteEntry } from '@/api/entries'
+import { useEntries } from '@/composables/useEntries'
+import { deleteEntry, patchEntry } from '@/api/entries'
 
 const props = defineProps<{
     id: number
@@ -16,6 +18,7 @@ const props = defineProps<{
     category: 'page' | 'collection' | 'object'
     status: 'draft' | 'published'
     updatedAt: string
+    ogImage?: string
 }>()
 
 const emit = defineEmits<{ deleted: [id: number] }>()
@@ -23,6 +26,7 @@ const emit = defineEmits<{ deleted: [id: number] }>()
 const router = useRouter()
 const { confirm } = useAlerts()
 const { toast } = useToast()
+const { updateStatus } = useEntries()
 
 const icon = computed(() => {
     if (props.category === 'page') return DocumentTextIcon
@@ -43,12 +47,24 @@ async function handleDelete() {
     toast(`"${props.title}" deleted`, 'success')
 }
 
+async function handleToggleStatus() {
+    const newStatus = props.status === 'published' ? 'draft' : 'published'
+    updateStatus(props.id, newStatus)
+    toast(`"${props.title}" ${newStatus === 'published' ? 'published' : 'unpublished'}`, 'success')
+    await patchEntry(props.id, { status: newStatus })
+}
+
 const actions = computed<ComboboxItem[]>(() => {
     const items: ComboboxItem[] = [
         {
             icon: PencilIcon,
             label: 'Edit',
             action: () => router.push({ name: 'editor', params: { id: props.id } }),
+        },
+        {
+            icon: props.status === 'published' ? EyeSlashIcon : EyeIcon,
+            label: props.status === 'published' ? 'Unpublish' : 'Publish',
+            action: handleToggleStatus,
         },
     ]
     if (props.category === 'collection') {
@@ -67,16 +83,17 @@ const actions = computed<ComboboxItem[]>(() => {
     <div class="item" @click="router.push({ name: 'editor', params: { id: props.id } })">
         <div class="header">
             <div class="icon">
-                <component :is="icon"/>
+                <img v-if="ogImage" :src="ogImage" alt="" />
+                <component v-else :is="icon"/>
             </div>
             <div class="meta">
-                <span class="title">{{ title }}</span>
+                <span class="title">{{ title.length > 25 ? title.slice(0, 25) + '…' : title }}</span>
                 <span class="slug">{{ slug }}</span>
             </div>
         </div>
         <span class="type">{{ type }}</span>
         <span class="badge" :class="status">{{ status }}</span>
-        <span class="date">{{ updatedAt }}</span>
+        <span class="date">{{ relativeTime(updatedAt) }}</span>
         <UiCombobox :items="actions" />
     </div>
 </template>
@@ -84,11 +101,11 @@ const actions = computed<ComboboxItem[]>(() => {
 <style scoped>
 .item {
     display: grid;
-    grid-template-columns: 8fr 3fr 3fr 4fr 1fr;
+    grid-template-columns: 8fr 3fr 3fr 3fr 1fr;
     align-items: center;
     padding: var(--space-sm) var(--space-sm);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-md);
     cursor: pointer;
 
     &:hover {
@@ -114,6 +131,13 @@ const actions = computed<ComboboxItem[]>(() => {
                 height: var(--size-base);
                 aspect-ratio: 1/1;
             }
+
+            > img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                border-radius: var(--radius-md);
+            }
         }
 
         .meta {
@@ -138,22 +162,26 @@ const actions = computed<ComboboxItem[]>(() => {
         opacity: 0.4;
         text-transform: capitalize;
         font-family: 'Geist Mono Variable', monospace;
+        text-align: end;
+        margin-right: var(--space-md);
     }
 
     .badge {
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        justify-self: end;
         width: fit-content;
         padding: var(--space-xs) var(--space-sm);
         border-radius: var(--radius-full);
         font-size: var(--size-xs);
         font-weight: 500;
         text-transform: capitalize;
+        margin-right: var(--space-md);
 
         &.draft {
-            background: var(--color-border);
-            color: var(--color-secondary);
+            background: var(--color-draft-bg);
+            color: var(--color-draft);
         }
 
         &.published {
@@ -163,8 +191,12 @@ const actions = computed<ComboboxItem[]>(() => {
     }
 
     .date {
-        font-size: var(--size-sm);
-        opacity: 0.35;
+        font-size: var(--size-xs);
+        font-family: 'Geist Mono';
+        text-transform: uppercase;
+        color: var(--color-secondary);
+        text-align: end;
+        margin-right: var(--space-md);
     }
 }
 </style>

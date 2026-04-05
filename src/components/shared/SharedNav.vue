@@ -15,6 +15,7 @@ import { useStorage } from '@/composables/useStorage'
 import { useCollections } from '@/composables/useCollections'
 import { useAppSettings } from '@/composables/useAppSettings'
 import { useAuth } from '@/composables/useAuth'
+import { getEntriesByCollection } from '@/api/entries'
 
 const { open: openSettings } = useSettingsSheet()
 const { open: openStorage, isOpen: isStorageOpen } = useStorage()
@@ -30,6 +31,15 @@ function handleLogout() {
 
 function toList(id: number) {
     return { name: 'list', params: { id } }
+}
+
+async function openPage(collectionId: number) {
+    const entries = await getEntriesByCollection(collectionId)
+    if (entries.length > 0) {
+        router.push({ name: 'editor', params: { id: entries[0].id } })
+    } else {
+        router.push({ name: 'editor', query: { collection: collectionId } })
+    }
 }
 </script>
 
@@ -49,7 +59,7 @@ function toList(id: number) {
                     v-if="grouped.pages.length"
                     title="Pages"
                     :icon="DocumentTextIcon"
-                    :children="grouped.pages.map(c => ({ title: c.label, to: toList(c.id) }))"
+                    :children="grouped.pages.map(c => ({ title: c.label, action: () => openPage(c.id) }))"
                 />
                 <UiNav
                     v-if="grouped.collections.length"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { PhotoIcon, FolderPlusIcon, ArrowUpTrayIcon } from '@heroicons/vue/24/outline'
 import UiSheet from '@/components/ui/UiSheet.vue'
 import UiButton from '@/components/ui/UiButton.vue'
@@ -16,7 +16,13 @@ import { getFolders, createFolder as apiFolderCreate, deleteFolder as apiFolderD
 import type { MediaItem } from '@/api/media'
 import type { Folder } from '@/api/folders'
 
-const { isOpen } = useStorage()
+const { isOpen, isPicking, resolve } = useStorage()
+
+// If the sheet closes while in picker mode (click-outside, ESC, route change),
+// resolve the pending promise with null so callers don't hang.
+watch(isOpen, (val) => {
+    if (!val && isPicking.value) resolve(null)
+})
 const { confirm, prompt } = useAlerts()
 const { open: openConvert } = useConvert()
 const { toast } = useToast()
@@ -226,6 +232,9 @@ async function moveMedia(mediaId: number, folderId: number | null) {
         width="680px"
     >
         <template #default>
+            <div v-if="isPicking" class="pick-banner">
+                Click an item to insert it into the field.
+            </div>
             <div class="toolbar">
                 <UiFilters :defs="defs" :values="values" />
                 <div class="actions">
@@ -263,7 +272,7 @@ async function moveMedia(mediaId: number, folderId: number | null) {
                     :count="folder.count"
                     @open="currentFolderId = folder.id"
                     @deleted="deleteFolder(folder.id)"
-                    @drop="moveMedia($event, folder.id)"
+                    @media-drop="moveMedia($event, folder.id)"
                 />
                 <UiMediaCard
                     v-for="item in visibleMedia"
@@ -275,6 +284,8 @@ async function moveMedia(mediaId: number, folderId: number | null) {
                     :dimensions="item.dimensions"
                     :type="item.type"
                     :folder-id="item.folder_id"
+                    :selectable="isPicking"
+                    @pick="resolve($event)"
                     @move="moveMedia(item.id, $event)"
                     @deleted="removeMedia($event)"
                     @convert="handleConvertMedia(item)"
@@ -285,6 +296,14 @@ async function moveMedia(mediaId: number, folderId: number | null) {
 </template>
 
 <style scoped>
+.pick-banner {
+    font-size: var(--size-sm);
+    padding: var(--space-sm) var(--space-md);
+    background: var(--color-hover);
+    border-radius: var(--radius-sm);
+    opacity: 0.7;
+}
+
 .toolbar {
     display: flex;
     align-items: center;

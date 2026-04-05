@@ -43,7 +43,7 @@ async function handleSave(target: 'draft' | 'published') {
 
         <template v-else-if="route.name === 'editor'">
             <UiButton text="Cancel" variant="ghost" size="sm" @click="router.back()" />
-            <UiButton text="Save" variant="outline" size="sm" :icon="BookmarkIcon" @click="handleSave('draft')" />
+            <UiButton text="Save" variant="outline" size="sm" @click="handleSave('draft')" />
             <UiButton text="Publish" size="sm" :icon="CloudArrowUpIcon" @click="handleSave('published')" />
         </template>
     </div>
@@ -53,6 +53,6 @@ async function handleSave(target: 'draft' | 'published') {
 .actions {
     display: flex;
     align-items: center;
-    gap: var(--gap-md);
+    gap: var(--gap-sm);
 }
 </style>

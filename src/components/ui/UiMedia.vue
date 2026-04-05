@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import UiButton from '@/components/ui/UiButton.vue'
+import { TrashIcon } from '@heroicons/vue/24/outline'
 import { useStorage } from '@/composables/useStorage'
 
 const model = defineModel<string>({ default: '' })
@@ -7,7 +9,12 @@ defineProps<{
     label?: string
 }>()
 
-const { open } = useStorage()
+const { pick } = useStorage()
+
+async function pickFromLibrary() {
+    const url = await pick()
+    if (url) model.value = url
+}
 </script>
 
 <template>
@@ -15,11 +22,9 @@ const { open } = useStorage()
         <label v-if="label">{{ label }}</label>
         <div class="preview" v-if="model">
             <img :src="model" alt="" />
-            <button class="clear" @click="model = ''">Remove</button>
+            <UiButton class="clear" :icon="TrashIcon" size="icon" variant="ghost" @click="model = ''" />
         </div>
-        <button class="pick" @click="open()">
-            Choose from media library
-        </button>
+        <UiButton v-if="!model" text="Choose from media library" variant="outline" block @click="pickFromLibrary" />
     </div>
 </template>
 
@@ -48,29 +53,9 @@ const { open } = useStorage()
             top: var(--space-sm);
             right: var(--space-sm);
             background: var(--color-surface);
-            border: 1px solid var(--color-border);
-            border-radius: var(--radius-sm);
-            font-size: var(--size-xs);
-            padding: var(--space-xs) var(--space-sm);
-            cursor: pointer;
-            font-family: inherit;
-            &:hover { background: var(--color-danger-bg); color: var(--color-danger); }
+            &:hover { color: var(--color-danger); }
         }
     }
 
-    .pick {
-        background: none;
-        border: 1px dashed var(--color-border);
-        border-radius: var(--radius-sm);
-        font-size: var(--size-sm);
-        font-family: inherit;
-        cursor: pointer;
-        color: inherit;
-        padding: var(--space-sm) var(--space-md);
-        opacity: 0.6;
-        width: 100%;
-        text-align: center;
-        &:hover { opacity: 1; background: var(--color-hover); }
-    }
 }
 </style>

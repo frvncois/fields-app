@@ -36,7 +36,12 @@ export function useEntries() {
         entries.value = entries.value.filter(e => e.id !== id)
     }
 
-    return { entries, loading: listLoading, fetchAll, fetchByCollection, remove }
+    function updateStatus(id: number, status: 'draft' | 'published') {
+        const i = entries.value.findIndex(e => e.id === id)
+        if (i !== -1) entries.value[i] = { ...entries.value[i], status }
+    }
+
+    return { entries, loading: listLoading, fetchAll, fetchByCollection, remove, updateStatus }
 }
 
 // ─── Single-entry composable (for editor) ────────────────────────────────────

@@ -42,10 +42,10 @@
     /* Base tokens */
     --color-background:   #ffffff;
     --color-foreground:   #000000;
-    --color-secondary:    #f7f8f7;
+    --color-secondary:    #6a6a6a;
     --color-border:       rgb(238, 238, 238);
-    --color-border-var:   rgb(35, 35, 35);
-    --color-surface:      #ffffff;
+    --color-border-var:   rgb(230, 230, 230);
+    --color-surface:      #fcfcfc;
 
     /* Extended tokens */
     --color-hover:         rgba(112, 112, 112, 0.078);
@@ -53,8 +53,10 @@
     --color-backdrop:      rgba(0, 0, 0, 0.35);
     --color-danger:        rgb(220, 38, 38);
     --color-danger-bg:     rgba(220, 38, 38, 0.06);
-    --color-success:       rgb(21, 128, 61);
-    --color-success-bg:    rgba(34, 197, 94, 0.12);
+    --color-success:       rgb(40, 210, 102);
+    --color-success-bg:    rgba(49, 218, 111, 0.12);
+    --color-draft:         rgb(234, 88, 12);
+    --color-draft-bg:      rgba(234, 88, 12, 0.08);
 }
 
 [data-theme="dark"] {

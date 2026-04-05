@@ -27,16 +27,18 @@ const crumbs = computed((): Crumb[] => {
         const entry = currentEntry.value
         const col = all.value.find(c => c.name === entry.collectionName)
         const sectionLabel = entry.category === 'page' ? 'Pages' : entry.type
-        const collectionCrumb: Crumb = col
-            ? { label: sectionLabel, to: { name: 'list', params: { id: col.id } } }
-            : { label: sectionLabel }
+        const collectionCrumb: Crumb = entry.category === 'page'
+            ? { label: sectionLabel, to: { name: 'list', query: { type: 'Page' } } }
+            : col
+                ? { label: sectionLabel, to: { name: 'list', params: { id: col.id } } }
+                : { label: sectionLabel }
         return [root, collectionCrumb, { label: entry.title }]
     }
 
     if (route.name === 'list') {
         const id = Number(route.params.id)
         const col = id ? findCollection(id) : null
-        const sectionLabel = col?.type === 'page' ? 'Pages' : (col?.label ?? 'Content')
+        const sectionLabel = col?.type === 'page' || route.query.type === 'Page' ? 'Pages' : (col?.label ?? 'Content')
         return [root, { label: sectionLabel }]
     }
 

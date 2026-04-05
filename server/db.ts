@@ -107,6 +107,20 @@ const MIGRATIONS: Migration[] = [
             catch { /* already exists on fresh DBs */ }
         },
     },
+    {
+        version: 3,
+        up(db) {
+            try { db.exec(`ALTER TABLE entries ADD COLUMN locale TEXT NOT NULL DEFAULT 'en'`) }
+            catch { /* already exists on fresh DBs */ }
+        },
+    },
+    {
+        version: 4,
+        up(db) {
+            try { db.exec(`ALTER TABLE entries ADD COLUMN translation_key TEXT`) }
+            catch { /* already exists on fresh DBs */ }
+        },
+    },
 ]
 
 function runMigrations(db: Database.Database): void {
@@ -144,33 +158,41 @@ function seedCollections(db: Database.Database) {
         'INSERT INTO collections (name, label, type) VALUES (?, ?, ?)'
     )
     const insertEntry = db.prepare(
-        'INSERT INTO entries (collection_name, title, slug, status, updated_at) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO entries (collection_name, title, slug, status, locale, translation_key, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     )
 
     const collections: [string, string, string][] = [
-        ['home',        'Home',        'page'],
-        ['blog',        'Blog',        'collection'],
-        ['modals',      'Modals',      'object'],
-        ['attachments', 'Attachments', 'object'],
+        ['home',     'Home',     'page'],
+        ['services', 'Services', 'page'],
+        ['about',    'About',    'page'],
+        ['contact',  'Contact',  'page'],
+        ['blog',     'Blog',     'collection'],
+        ['shared',   'Shared',   'object'],
     ]
     for (const [name, label, type] of collections) {
         insertCollection.run(name, label, type)
     }
 
-    const entries: [string, string, string, string, string][] = [
-        ['home',        'Home',              '/home',                    'published', hoursAgo(1)],
-        ['blog',        'Hello World',        '/blog/hello-world',        'published', hoursAgo(2)],
-        ['blog',        'Getting Started',    '/blog/getting-started',    'published', hoursAgo(24)],
-        ['modals',      'Welcome modal',      '/modals/welcome',          'published', hoursAgo(72)],
-        ['blog',        'Why Fields?',        '/blog/why-fields',         'published', hoursAgo(96)],
-        ['modals',      'Sign up',            '/modals/sign-up',          'published', hoursAgo(120)],
-        ['blog',        'My Draft Post',      '/blog/my-draft-post',      'draft',     hoursAgo(72)],
-        ['blog',        'The Future of CMS',  '/blog/future-of-cms',      'draft',     hoursAgo(120)],
-        ['modals',      'Cookie banner',      '/modals/cookie-banner',    'draft',     hoursAgo(168)],
-        ['attachments', 'Attachment example', '/attachments/example',     'draft',     hoursAgo(336)],
+    const entries: [string, string, string, string, string, string, string][] = [
+        // Pages
+        ['home',     'Home',                                        '/home',                                       'published', 'en', 'tk-home',        hoursAgo(1)],
+        ['services', 'Services',                                    '/services',                                   'published', 'en', 'tk-services',     hoursAgo(2)],
+        ['about',    'About Us',                                    '/about',                                      'published', 'en', 'tk-about',        hoursAgo(3)],
+        ['contact',  'Contact',                                     '/contact',                                    'published', 'en', 'tk-contact',       hoursAgo(4)],
+        // Blog posts
+        ['blog',     '5 Signs Your Pipes Need Immediate Attention', '/blog/5-signs-pipes-need-attention',          'published', 'en', 'tk-blog-1',       hoursAgo(2)],
+        ['blog',     'How to Unclog a Drain: DIY vs Professional',  '/blog/how-to-unclog-a-drain',                 'published', 'en', 'tk-blog-2',       hoursAgo(24)],
+        ['blog',     'Winter Pipe Protection: A Plumber\'s Guide',  '/blog/winter-pipe-protection',                'published', 'en', 'tk-blog-3',       hoursAgo(48)],
+        ['blog',     'Emergency Plumbing: What to Do First',        '/blog/emergency-plumbing-what-to-do',         'published', 'en', 'tk-blog-4',       hoursAgo(72)],
+        ['blog',     'Why Regular Plumbing Maintenance Saves Money','/blog/regular-plumbing-maintenance',          'draft',     'en', 'tk-blog-5',       hoursAgo(96)],
+        ['blog',     'The True Cost of a Leaky Faucet',            '/blog/true-cost-of-leaky-faucet',             'draft',     'en', 'tk-blog-6',       hoursAgo(120)],
+        // Shared objects
+        ['shared',   'Header',                                      '/shared/header',                              'published', 'en', 'tk-header',       hoursAgo(1)],
+        ['shared',   'Footer',                                      '/shared/footer',                              'published', 'en', 'tk-footer',       hoursAgo(1)],
+        ['shared',   'Mailing List',                                '/shared/mailing-list',                        'published', 'en', 'tk-mailing-list', hoursAgo(1)],
     ]
-    for (const [col, title, slug, status, updatedAt] of entries) {
-        insertEntry.run(col, title, slug, status, updatedAt)
+    for (const [col, title, slug, status, locale, tk, updatedAt] of entries) {
+        insertEntry.run(col, title, slug, status, locale, tk, updatedAt)
     }
 }
 

@@ -33,7 +33,7 @@ const display = computed(() => {
     align-items: center;
     justify-content: space-between;
     gap: var(--gap-sm);
-    font-size: var(--size-sm);
+    font-size: var(--size-xs);
 
     .label {
         display: flex;
