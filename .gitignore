@@ -42,3 +42,6 @@ __screenshots__/
 fields.db
 fields.db-shm
 fields.db-wal
+
+# Uploaded media
+public/uploads/

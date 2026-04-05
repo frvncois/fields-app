@@ -47,7 +47,7 @@ export async function handleEntries(req: Req, res: Res, db: Db): Promise<void> {
         const body = await readJson(req)
         const col = db.prepare('SELECT name FROM collections WHERE id = ?')
             .get(body.collectionId) as { name: string } | undefined
-        if (!col) { json(res, { error: 'Unknown collection' }, 400); return }
+        if (!col) { json(res, { error: 'Bad request' }, 400); return }
 
         const slug = toSlug(db, col.name, String(body.title))
         const status = body.status === 'published' ? 'published' : 'draft'
@@ -111,7 +111,7 @@ export async function handleEntry(req: Req, res: Res, db: Db, id: number): Promi
 export function handleCollectionEntries(req: Req, res: Res, db: Db, collectionId: number): void {
     const col = db.prepare('SELECT name FROM collections WHERE id = ?')
         .get(collectionId) as { name: string } | undefined
-    if (!col) { json(res, { error: 'Not found' }, 404); return }
+    if (!col) { json(res, { error: 'Bad request' }, 400); return }
 
     const locale = currentLocale(db)
     const rows = db.prepare(
@@ -123,17 +123,19 @@ export function handleCollectionEntries(req: Req, res: Res, db: Db, collectionId
 export async function handleTranslateEntry(req: Req, res: Res, db: Db, id: number, targetLocale: string): Promise<void> {
     if (req.method !== 'POST') { json(res, { error: 'Method not allowed' }, 405); return }
 
+    // [H5] Validate targetLocale against the locales table
+    const validLocale = db.prepare('SELECT 1 FROM locales WHERE code = ?').get(targetLocale)
+    if (!validLocale) { json(res, { error: 'Unknown locale' }, 400); return }
+
     const source = db.prepare('SELECT * FROM entries WHERE id = ?').get(id) as Record<string, unknown> | undefined
     if (!source) { json(res, { error: 'Not found' }, 404); return }
 
-    // Ensure source has a translation_key
     let translationKey = source.translation_key as string | null
     if (!translationKey) {
         translationKey = randomKey()
         db.prepare('UPDATE entries SET translation_key = ? WHERE id = ?').run(translationKey, id)
     }
 
-    // Check if translation already exists
     const existing = db.prepare(
         'SELECT id FROM entries WHERE translation_key = ? AND locale = ?'
     ).get(translationKey, targetLocale) as { id: number } | undefined
@@ -144,7 +146,6 @@ export async function handleTranslateEntry(req: Req, res: Res, db: Db, id: numbe
         return
     }
 
-    // Create translation (copy title + data from source, mark as draft)
     const slug = toSlug(db, source.collection_name as string, `${source.title}-${targetLocale}`)
     const { lastInsertRowid } = db.prepare(
         'INSERT INTO entries (collection_name, title, slug, status, data, locale, translation_key) VALUES (?, ?, ?, ?, ?, ?, ?)'

@@ -1,6 +1,5 @@
 import Database from 'better-sqlite3'
 import { join } from 'node:path'
-import { hashSync } from 'bcryptjs'
 import { hoursAgo } from './utils/time'
 
 const DB_PATH = process.env.FIELDS_DB_PATH ?? join(process.cwd(), 'fields.db')
@@ -34,6 +33,17 @@ function createSchema(db: Database.Database): void {
         CREATE TABLE IF NOT EXISTS _migrations (
             version    INTEGER PRIMARY KEY,
             applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS _rate_limits (
+            ip       TEXT PRIMARY KEY,
+            count    INTEGER NOT NULL DEFAULT 0,
+            reset_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS _token_revocations (
+            jti        TEXT PRIMARY KEY,
+            revoked_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
         CREATE TABLE IF NOT EXISTS settings (
@@ -121,6 +131,23 @@ const MIGRATIONS: Migration[] = [
             catch { /* already exists on fresh DBs */ }
         },
     },
+    {
+        version: 5,
+        up(db) {
+            // Create internal tables for rate limiting and token revocation
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS _rate_limits (
+                    ip       TEXT PRIMARY KEY,
+                    count    INTEGER NOT NULL DEFAULT 0,
+                    reset_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS _token_revocations (
+                    jti        TEXT PRIMARY KEY,
+                    revoked_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+            `)
+        },
+    },
 ]
 
 function runMigrations(db: Database.Database): void {
@@ -150,7 +177,7 @@ function seedIfEmpty(db: Database.Database): void {
     seedLocales(db)
     seedFolders(db)
     seedMedia(db)
-    seedUsers(db)
+    // No user seed — the setup wizard (/setup) creates the first admin account.
 }
 
 function seedCollections(db: Database.Database) {
@@ -174,19 +201,16 @@ function seedCollections(db: Database.Database) {
     }
 
     const entries: [string, string, string, string, string, string, string][] = [
-        // Pages
         ['home',     'Home',                                        '/home',                                       'published', 'en', 'tk-home',        hoursAgo(1)],
         ['services', 'Services',                                    '/services',                                   'published', 'en', 'tk-services',     hoursAgo(2)],
         ['about',    'About Us',                                    '/about',                                      'published', 'en', 'tk-about',        hoursAgo(3)],
         ['contact',  'Contact',                                     '/contact',                                    'published', 'en', 'tk-contact',       hoursAgo(4)],
-        // Blog posts
         ['blog',     '5 Signs Your Pipes Need Immediate Attention', '/blog/5-signs-pipes-need-attention',          'published', 'en', 'tk-blog-1',       hoursAgo(2)],
         ['blog',     'How to Unclog a Drain: DIY vs Professional',  '/blog/how-to-unclog-a-drain',                 'published', 'en', 'tk-blog-2',       hoursAgo(24)],
         ['blog',     'Winter Pipe Protection: A Plumber\'s Guide',  '/blog/winter-pipe-protection',                'published', 'en', 'tk-blog-3',       hoursAgo(48)],
         ['blog',     'Emergency Plumbing: What to Do First',        '/blog/emergency-plumbing-what-to-do',         'published', 'en', 'tk-blog-4',       hoursAgo(72)],
         ['blog',     'Why Regular Plumbing Maintenance Saves Money','/blog/regular-plumbing-maintenance',          'draft',     'en', 'tk-blog-5',       hoursAgo(96)],
         ['blog',     'The True Cost of a Leaky Faucet',            '/blog/true-cost-of-leaky-faucet',             'draft',     'en', 'tk-blog-6',       hoursAgo(120)],
-        // Shared objects
         ['shared',   'Header',                                      '/shared/header',                              'published', 'en', 'tk-header',       hoursAgo(1)],
         ['shared',   'Footer',                                      '/shared/footer',                              'published', 'en', 'tk-footer',       hoursAgo(1)],
         ['shared',   'Mailing List',                                '/shared/mailing-list',                        'published', 'en', 'tk-mailing-list', hoursAgo(1)],
@@ -198,20 +222,16 @@ function seedCollections(db: Database.Database) {
 
 function seedSettings(db: Database.Database) {
     const insert = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)')
-    insert.run('project_name',  'Acme Corp')
-    insert.run('user_first',    'John')
-    insert.run('user_last',     'Doe')
-    insert.run('user_email',    'john.doe@acmecorp.com')
+    insert.run('project_name',  'My Project')
+    insert.run('user_first',    '')
+    insert.run('user_last',     '')
+    insert.run('user_email',    '')
 }
 
 function seedLocales(db: Database.Database) {
     const insert = db.prepare('INSERT INTO locales (code, name, is_current) VALUES (?, ?, ?)')
     insert.run('en', 'English', 1)
     insert.run('fr', 'French',  0)
-}
-
-function seedUsers(db: Database.Database) {
-    db.prepare('INSERT INTO users (email, password) VALUES (?, ?)').run('test@test.com', hashSync('1234', 10))
 }
 
 function seedFolders(db: Database.Database) {

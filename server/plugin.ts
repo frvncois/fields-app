@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createDb } from './db'
 import { verifyToken, getBearer } from './auth'
 import { handleLogin, handleLogout, handleChangePassword } from './handlers/auth'
+import { handleSetupCheck, handleSetupCreate } from './handlers/setup'
 import { handleEntries, handleEntry, handleCollectionEntries, handleTranslateEntry } from './handlers/entries'
 import { handleCollections } from './handlers/collections'
 import { handleSettings } from './handlers/settings'
@@ -13,20 +14,22 @@ import {
 } from './handlers/media'
 import { json } from './handlers/types'
 
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+
 const ALLOWED_ORIGINS = process.env.FIELDS_ALLOWED_ORIGINS
     ? process.env.FIELDS_ALLOWED_ORIGINS.split(',').map(s => s.trim())
-    : null // null = same-origin only (no CORS headers emitted)
+    : null
 
-function unauthorized(res: ServerResponse): void {
-    json(res as ServerResponse & { statusCode: number }, { error: 'Unauthorized' }, 401)
-}
+// ─── Security headers ─────────────────────────────────────────────────────────
 
 function addSecurityHeaders(res: ServerResponse): void {
     res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader('X-Frame-Options', 'DENY')
-    res.setHeader('Referrer-Policy', 'same-origin')
-    res.setHeader('Content-Security-Policy', "default-src 'none'")
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+    res.setHeader('Content-Security-Policy', "default-src 'self'")
 }
+
+// ─── CORS handling ────────────────────────────────────────────────────────────
 
 function handleCors(req: IncomingMessage, res: ServerResponse): boolean {
     const origin = req.headers['origin']
@@ -45,10 +48,53 @@ function handleCors(req: IncomingMessage, res: ServerResponse): boolean {
     return false
 }
 
+// ─── Per-IP rate limiting for authenticated endpoints ────────────────────────
+
+const authRateLimits = new Map<string, { count: number; resetAt: number }>()
+const AUTH_RATE_WINDOW = 60_000 // 1 minute
+const AUTH_RATE_MAX = 300
+
+function getClientIp(req: IncomingMessage): string {
+    if (process.env.FIELDS_TRUST_PROXY === 'true') {
+        const forwarded = req.headers['x-forwarded-for'] as string | undefined
+        if (forwarded) {
+            const parts = forwarded.split(',').map(s => s.trim())
+            return parts[parts.length - 1]
+        }
+    }
+    return req.socket.remoteAddress ?? 'unknown'
+}
+
+function checkAuthRateLimit(req: IncomingMessage, res: ServerResponse): boolean {
+    const ip = getClientIp(req)
+    const now = Date.now()
+    const entry = authRateLimits.get(ip)
+    if (!entry || now > entry.resetAt) {
+        authRateLimits.set(ip, { count: 1, resetAt: now + AUTH_RATE_WINDOW })
+        return true
+    }
+    if (entry.count >= AUTH_RATE_MAX) {
+        const retryAfter = Math.ceil((entry.resetAt - now) / 1000)
+        res.setHeader('Retry-After', String(retryAfter))
+        json(res, { error: 'Too many requests' }, 429)
+        return false
+    }
+    entry.count++
+    return true
+}
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+
+function unauthorized(res: ServerResponse): void {
+    json(res, { error: 'Unauthorized' }, 401)
+}
+
 function parseId(s: string): number | null {
     const n = Number(s)
     return Number.isInteger(n) && n > 0 ? n : null
 }
+
+// ─── Main dispatcher ──────────────────────────────────────────────────────────
 
 async function dispatch(req: IncomingMessage, res: ServerResponse, db: ReturnType<typeof createDb>): Promise<void> {
     addSecurityHeaders(res)
@@ -56,18 +102,37 @@ async function dispatch(req: IncomingMessage, res: ServerResponse, db: ReturnTyp
 
     const path = req.url!.slice('/api/fields'.length).split('?')[0]
 
-    // Public route
+    // [C3] Setup routes — always public, no auth required
+    if (path === '/setup' && req.method === 'GET') return handleSetupCheck(req, res, db)
+    if (path === '/setup' && req.method === 'POST') return handleSetupCreate(req, res, db)
+
+    // [C3] If no users exist, all other routes return 403 with needsSetup flag
+    const { count: userCount } = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }
+    if (userCount === 0) {
+        json(res, { needsSetup: true }, 403)
+        return
+    }
+
+    // Public login route
     if (path === '/auth/login' && req.method === 'POST') {
         return handleLogin(req, res, db)
     }
+
+    // [H3] Rate limit all other requests
+    if (!checkAuthRateLimit(req, res)) return
 
     // Auth guard
     const token = getBearer(req)
     const payload = token ? verifyToken(token) : null
     if (!payload) return unauthorized(res)
+
+    // [M6] Check token revocation in DB
+    const revoked = db.prepare('SELECT 1 FROM _token_revocations WHERE jti = ?').get(payload.jti)
+    if (revoked) return unauthorized(res)
+
     const userId = payload.sub
 
-    if (path === '/auth/logout' && req.method === 'POST') return handleLogout(req, res)
+    if (path === '/auth/logout' && req.method === 'POST') return handleLogout(req, res, db)
     if (path === '/auth/password' && req.method === 'PATCH') return handleChangePassword(req, res, db, userId)
 
     if (path === '/entries' || path === '/entries/') return handleEntries(req, res, db)
@@ -123,6 +188,8 @@ async function dispatch(req: IncomingMessage, res: ServerResponse, db: ReturnTyp
 
     json(res, { error: 'Not found' }, 404)
 }
+
+// ─── Vite plugin ─────────────────────────────────────────────────────────────
 
 export function fieldsApiPlugin(): Plugin {
     let db: ReturnType<typeof createDb>

@@ -1,17 +1,17 @@
 import type { Req, Res, Db } from './types'
 import { json, readJson } from './types'
 import { compareSync, hashSync } from 'bcryptjs'
-import { signToken, verifyToken, invalidateToken, tokenCookieHeader, clearCookieHeader, getBearer } from '../auth'
+import { signToken, verifyToken, tokenCookieHeader, clearCookieHeader, getBearer } from '../auth'
 
-const loginAttempts = new Map<string, { count: number; resetAt: number }>()
-const RATE_LIMIT_WINDOW = 15 * 60 * 1000
+// ─── Rate limiting (login endpoint) — persisted to SQLite ────────────────────
+
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000 // 15 min
 const RATE_LIMIT_MAX = 5
 
 function getIp(req: Req): string {
     if (process.env.FIELDS_TRUST_PROXY === 'true') {
         const forwarded = req.headers['x-forwarded-for'] as string | undefined
         if (forwarded) {
-            // Use the rightmost IP added by the trusted proxy
             const parts = forwarded.split(',').map(s => s.trim())
             return parts[parts.length - 1]
         }
@@ -19,26 +19,32 @@ function getIp(req: Req): string {
     return req.socket.remoteAddress ?? 'unknown'
 }
 
-function checkRateLimit(ip: string): boolean {
+function checkLoginRateLimit(ip: string, db: Db): boolean {
     const now = Date.now()
-    const entry = loginAttempts.get(ip)
-    if (!entry || now > entry.resetAt) {
-        loginAttempts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW })
+    const row = db.prepare('SELECT count, reset_at FROM _rate_limits WHERE ip = ?').get(ip) as
+        { count: number; reset_at: string } | undefined
+
+    if (!row || now > Number(row.reset_at)) {
+        db.prepare(
+            'INSERT INTO _rate_limits (ip, count, reset_at) VALUES (?, 1, ?) ON CONFLICT(ip) DO UPDATE SET count = 1, reset_at = excluded.reset_at'
+        ).run(ip, String(now + RATE_LIMIT_WINDOW_MS))
         return true
     }
-    if (entry.count >= RATE_LIMIT_MAX) return false
-    entry.count++
+    if (row.count >= RATE_LIMIT_MAX) return false
+    db.prepare('UPDATE _rate_limits SET count = count + 1 WHERE ip = ?').run(ip)
     return true
 }
 
-function clearRateLimit(ip: string): void {
-    loginAttempts.delete(ip)
+function clearLoginRateLimit(ip: string, db: Db): void {
+    db.prepare('DELETE FROM _rate_limits WHERE ip = ?').run(ip)
 }
+
+// ─── Handlers ────────────────────────────────────────────────────────────────
 
 export async function handleLogin(req: Req, res: Res, db: Db): Promise<void> {
     const ip = getIp(req)
 
-    if (!checkRateLimit(ip)) {
+    if (!checkLoginRateLimit(ip, db)) {
         json(res, { error: 'Too many attempts. Try again later.' }, 429)
         return
     }
@@ -52,17 +58,21 @@ export async function handleLogin(req: Req, res: Res, db: Db): Promise<void> {
         return
     }
 
-    clearRateLimit(ip)
+    clearLoginRateLimit(ip, db)
     const token = signToken(user.id)
     res.setHeader('Set-Cookie', tokenCookieHeader(token))
     json(res, { ok: true })
 }
 
-export async function handleLogout(req: Req, res: Res): Promise<void> {
+export async function handleLogout(req: Req, res: Res, db: Db): Promise<void> {
     const token = getBearer(req)
     if (token) {
         const payload = verifyToken(token)
-        if (payload) invalidateToken(payload.jti)
+        if (payload) {
+            db.prepare(
+                "INSERT OR IGNORE INTO _token_revocations (jti, revoked_at) VALUES (?, datetime('now'))"
+            ).run(payload.jti)
+        }
     }
     res.setHeader('Set-Cookie', clearCookieHeader())
     json(res, { ok: true })
@@ -78,6 +88,6 @@ export async function handleChangePassword(req: Req, res: Res, db: Db, userId: n
         json(res, { error: 'Password must be between 8 and 128 characters' }, 400)
         return
     }
-    db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashSync(body.password, 10), userId)
+    db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashSync(body.password, 12), userId)
     json(res, { ok: true })
 }

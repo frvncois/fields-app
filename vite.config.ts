@@ -9,7 +9,7 @@ import { fieldsApiPlugin } from './server/plugin'
 export default defineConfig({
   plugins: [
     vue(),
-    vueDevTools(),
+    ...(process.env.NODE_ENV !== 'production' ? [vueDevTools()] : []),
     fieldsApiPlugin(),
   ],
   resolve: {

@@ -1,18 +1,44 @@
-import { createWriteStream, existsSync, unlinkSync } from 'node:fs'
+import { createWriteStream, existsSync, unlinkSync, statSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
-import { join, extname, basename } from 'node:path'
+import { join, extname, basename, resolve, sep } from 'node:path'
 import Busboy from 'busboy'
+import { imageSizeFromFile } from 'image-size/fromFile'
 import type { Req, Res, Db } from './types'
 import { json, readJson } from './types'
 
-const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.pdf', '.mp4', '.wav', '.mov'])
+const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.pdf', '.mp4', '.wav', '.mov', '.webm', '.mp3', '.docx'])
 const ALLOWED_MIME_TYPES = new Set([
     'image/jpeg', 'image/png', 'image/webp',
     'application/pdf',
-    'video/mp4', 'video/quicktime',
-    'audio/wav', 'audio/wave', 'audio/x-wav',
+    'video/mp4', 'video/quicktime', 'video/webm',
+    'audio/wav', 'audio/wave', 'audio/x-wav', 'audio/mpeg',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ])
 const MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024 // 1 GB
+
+function formatWeight(bytes: number): string {
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function getServerMediaType(mime: string): string {
+    if (mime.startsWith('image/')) return 'image'
+    if (mime.startsWith('video/')) return 'video'
+    if (mime.startsWith('audio/')) return 'audio'
+    if (mime === 'application/pdf') return 'pdf'
+    if (mime.includes('word')) return 'docx'
+    return 'file'
+}
+
+async function getImageDimensions(filePath: string, mime: string): Promise<string> {
+    if (!mime.startsWith('image/')) return '—'
+    try {
+        const result = await imageSizeFromFile(filePath)
+        return result.width && result.height ? `${result.width}×${result.height}` : '—'
+    } catch {
+        return '—'
+    }
+}
 
 export async function handleMediaUpload(req: Req, res: Res, db: Db): Promise<void> {
     const uploadsDir = join(process.cwd(), 'public', 'uploads')
@@ -21,6 +47,7 @@ export async function handleMediaUpload(req: Req, res: Res, db: Db): Promise<voi
     const bb = Busboy({ headers: req.headers, limits: { fileSize: MAX_FILE_SIZE } })
     const fields: Record<string, string> = {}
     let savedFilename = ''
+    let savedMime = ''
     let uploadError: string | null = null
     let writePromise: Promise<void> = Promise.resolve()
 
@@ -31,7 +58,7 @@ export async function handleMediaUpload(req: Req, res: Res, db: Db): Promise<voi
         const mime = info.mimeType?.toLowerCase() ?? ''
 
         if (!ALLOWED_EXTENSIONS.has(ext) || !ALLOWED_MIME_TYPES.has(mime)) {
-            uploadError = `File type not allowed: ${ext}`
+            uploadError = `File type not allowed`
             stream.resume()
             return
         }
@@ -46,6 +73,7 @@ export async function handleMediaUpload(req: Req, res: Res, db: Db): Promise<voi
         }
 
         savedFilename = filename
+        savedMime = mime
         let limitHit = false
         writePromise = new Promise<void>((resolve, reject) => {
             const writer = createWriteStream(join(uploadsDir, filename))
@@ -74,10 +102,16 @@ export async function handleMediaUpload(req: Req, res: Res, db: Db): Promise<voi
 
     await writePromise
 
+    // [M3] Derive all metadata server-side — never trust client fields
+    const filePath = join(uploadsDir, savedFilename)
+    const weight = formatWeight(statSync(filePath).size)
+    const dimensions = await getImageDimensions(filePath, savedMime)
+    const mediaType = getServerMediaType(savedMime)
+
     const folderId = fields.folderId ? Number(fields.folderId) : null
     const { lastInsertRowid } = db.prepare(
         'INSERT INTO media (folder_id, title, url, weight, dimensions, type) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(folderId, savedFilename, `/uploads/${savedFilename}`, fields.weight, fields.dimensions, fields.mediaType)
+    ).run(folderId, savedFilename, `/uploads/${savedFilename}`, weight, dimensions, mediaType)
 
     const row = db.prepare('SELECT * FROM media WHERE id = ?').get(lastInsertRowid)
     json(res, row, 201)
@@ -110,8 +144,12 @@ export async function handleMediaItem(req: Req, res: Res, db: Db, id: number): P
     if (req.method === 'DELETE') {
         const row = db.prepare('SELECT url FROM media WHERE id = ?').get(id) as { url: string } | undefined
         if (row?.url.startsWith('/uploads/')) {
-            const filePath = join(process.cwd(), 'public', row.url)
-            try { unlinkSync(filePath) } catch { /* already gone */ }
+            // [M4] Canonicalize path to prevent directory traversal
+            const uploadsRoot = resolve(process.cwd(), 'public', 'uploads')
+            const filePath = resolve(process.cwd(), 'public', row.url)
+            if (filePath.startsWith(uploadsRoot + sep)) {
+                try { unlinkSync(filePath) } catch { /* already gone */ }
+            }
         }
         db.prepare('DELETE FROM media WHERE id = ?').run(id)
         res.statusCode = 204
@@ -139,7 +177,12 @@ export async function handleFolders(req: Req, res: Res, db: Db): Promise<void> {
     json(res, rows)
 }
 
-export function handleFolder(_req: Req, res: Res, db: Db, id: number): void {
+export function handleFolder(req: Req, res: Res, db: Db, id: number): void {
+    // [H4] Only allow DELETE
+    if (req.method !== 'DELETE') {
+        json(res, { error: 'Method not allowed' }, 405)
+        return
+    }
     db.prepare('UPDATE media SET folder_id = NULL WHERE folder_id = ?').run(id)
     db.prepare('DELETE FROM folders WHERE id = ?').run(id)
     res.statusCode = 204

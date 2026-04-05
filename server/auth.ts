@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
 
 if (process.env.NODE_ENV === 'production' && !process.env.FIELDS_JWT_SECRET) {
@@ -7,29 +7,19 @@ if (process.env.NODE_ENV === 'production' && !process.env.FIELDS_JWT_SECRET) {
 }
 
 export const JWT_SECRET = process.env.FIELDS_JWT_SECRET ?? randomBytes(32).toString('hex')
-const JWT_EXPIRES = '7d'
-const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 // seconds
-
-// In-memory JTI blocklist for session invalidation
-const blocklist = new Set<string>()
+const JWT_EXPIRES = '1d'
+const COOKIE_MAX_AGE = 24 * 60 * 60 // 1 day in seconds
 
 export function signToken(userId: number): string {
-    const jti = randomBytes(16).toString('hex')
-    return jwt.sign({ sub: userId, jti }, JWT_SECRET, { expiresIn: JWT_EXPIRES })
+    return jwt.sign({ sub: userId, jti: randomUUID() }, JWT_SECRET, { expiresIn: JWT_EXPIRES })
 }
 
 export function verifyToken(token: string): { sub: number; jti: string } | null {
     try {
-        const payload = jwt.verify(token, JWT_SECRET) as unknown as { sub: number; jti: string }
-        if (blocklist.has(payload.jti)) return null
-        return payload
+        return jwt.verify(token, JWT_SECRET) as unknown as { sub: number; jti: string }
     } catch {
         return null
     }
-}
-
-export function invalidateToken(jti: string): void {
-    blocklist.add(jti)
 }
 
 export function tokenCookieHeader(token: string): string {
