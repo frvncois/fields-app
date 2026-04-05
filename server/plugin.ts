@@ -2,9 +2,72 @@ import type { Plugin } from 'vite'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createWriteStream, existsSync, unlinkSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
-import { join, extname } from 'node:path'
+import { join, extname, basename } from 'node:path'
 import Busboy from 'busboy'
+import jwt from 'jsonwebtoken'
+import { compareSync, hashSync } from 'bcryptjs'
 import { createDb } from './db'
+
+if (process.env.NODE_ENV === 'production' && !process.env.FIELDS_JWT_SECRET) {
+    throw new Error('FIELDS_JWT_SECRET env var must be set in production')
+}
+
+const JWT_SECRET = process.env.FIELDS_JWT_SECRET ?? 'fields-dev-secret-change-in-production'
+const JWT_EXPIRES = '7d'
+
+const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.pdf', '.mp4', '.wav', '.mov'])
+const ALLOWED_MIME_TYPES = new Set([
+    'image/jpeg', 'image/png', 'image/webp',
+    'application/pdf',
+    'video/mp4', 'video/quicktime',
+    'audio/wav', 'audio/wave', 'audio/x-wav',
+])
+
+const MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024 // 1 GB
+
+// Brute force rate limiting: max 5 attempts per IP per 15 minutes
+const loginAttempts = new Map<string, { count: number; resetAt: number }>()
+const RATE_LIMIT_WINDOW = 15 * 60 * 1000 // 15 min
+const RATE_LIMIT_MAX = 5
+
+function checkRateLimit(ip: string): boolean {
+    const now = Date.now()
+    const entry = loginAttempts.get(ip)
+    if (!entry || now > entry.resetAt) {
+        loginAttempts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW })
+        return true
+    }
+    if (entry.count >= RATE_LIMIT_MAX) return false
+    entry.count++
+    return true
+}
+
+function clearRateLimit(ip: string) {
+    loginAttempts.delete(ip)
+}
+
+function signToken(userId: number): string {
+    return jwt.sign({ sub: userId }, JWT_SECRET, { expiresIn: JWT_EXPIRES })
+}
+
+function verifyToken(token: string): { sub: number } | null {
+    try {
+        return jwt.verify(token, JWT_SECRET) as { sub: number }
+    } catch {
+        return null
+    }
+}
+
+function getBearer(req: IncomingMessage): string | null {
+    const auth = req.headers['authorization']
+    if (!auth?.startsWith('Bearer ')) return null
+    return auth.slice(7)
+}
+
+function unauthorized(res: ServerResponse) {
+    res.statusCode = 401
+    res.end(JSON.stringify({ error: 'Unauthorized' }))
+}
 
 function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
     return new Promise((resolve, reject) => {
@@ -57,6 +120,36 @@ export function fieldsApiPlugin(): Plugin {
 
                 const path = req.url.slice('/api/field'.length).split('?')[0]
                 res.setHeader('Content-Type', 'application/json')
+
+                // Public route — no token required
+                if (path === '/auth/login' && req.method === 'POST') {
+                    const ip = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0].trim()
+                        ?? req.socket.remoteAddress
+                        ?? 'unknown'
+
+                    if (!checkRateLimit(ip)) {
+                        res.statusCode = 429
+                        res.end(JSON.stringify({ error: 'Too many attempts. Try again later.' }))
+                        return
+                    }
+
+                    const body = await readJson(req)
+                    const user = db.prepare('SELECT id, password FROM users WHERE email = ?')
+                        .get(String(body.email)) as { id: number; password: string } | undefined
+                    if (!user || !compareSync(String(body.password), user.password)) {
+                        res.statusCode = 401
+                        res.end(JSON.stringify({ error: 'Invalid credentials' }))
+                        return
+                    }
+
+                    clearRateLimit(ip)
+                    res.end(JSON.stringify({ token: signToken(user.id) }))
+                    return
+                }
+
+                // All other routes require a valid token
+                const token = getBearer(req)
+                if (!token || !verifyToken(token)) return unauthorized(res)
 
                 // /api/field/entries
                 if (path === '/entries' || path === '/entries/') {
@@ -133,18 +226,6 @@ export function fieldsApiPlugin(): Plugin {
                     return
                 }
 
-                // POST /api/field/auth/login
-                if (path === '/auth/login') {
-                    if (req.method === 'POST') {
-                        const body = await readJson(req)
-                        const user = db.prepare('SELECT id FROM users WHERE email = ? AND password = ?')
-                            .get(String(body.email), String(body.password))
-                        if (!user) { res.statusCode = 401; res.end(JSON.stringify({ error: 'Invalid credentials' })); return }
-                        res.end(JSON.stringify({ ok: true }))
-                        return
-                    }
-                }
-
                 // GET / PATCH /api/field/settings
                 if (path === '/settings' || path === '/settings/') {
                     if (req.method === 'PATCH') {
@@ -168,7 +249,7 @@ export function fieldsApiPlugin(): Plugin {
                     if (!body.password || typeof body.password !== 'string') {
                         res.statusCode = 400; res.end(JSON.stringify({ error: 'Missing password' })); return
                     }
-                    db.prepare('UPDATE users SET password = ?').run(String(body.password))
+                    db.prepare('UPDATE users SET password = ?').run(hashSync(String(body.password), 10))
                     res.end(JSON.stringify({ ok: true }))
                     return
                 }
@@ -185,25 +266,46 @@ export function fieldsApiPlugin(): Plugin {
                     const uploadsDir = join(process.cwd(), 'public', 'uploads')
                     await mkdir(uploadsDir, { recursive: true })
 
-                    const bb = Busboy({ headers: req.headers })
+                    const bb = Busboy({ headers: req.headers, limits: { fileSize: MAX_FILE_SIZE } })
                     const fields: Record<string, string> = {}
                     let savedFilename = ''
+                    let uploadError: string | null = null
                     let writePromise: Promise<void> = Promise.resolve()
 
                     bb.on('field', (name, value) => { fields[name] = value })
                     bb.on('file', (_name, stream, info) => {
-                        const ext = extname(info.filename) || ''
-                        let base = info.filename.slice(0, info.filename.length - ext.length)
+                        // Path traversal: strip to basename only
+                        const safeName = basename(info.filename)
+                        const ext = extname(safeName).toLowerCase()
+                        const mime = info.mimeType?.toLowerCase() ?? ''
+
+                        if (!ALLOWED_EXTENSIONS.has(ext) || !ALLOWED_MIME_TYPES.has(mime)) {
+                            uploadError = `File type not allowed: ${ext}`
+                            stream.resume() // drain and discard
+                            return
+                        }
+
+                        let base = safeName.slice(0, safeName.length - ext.length)
                             .toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+                        if (!base) base = 'file'
                         let filename = `${base}${ext}`
                         let i = 2
                         while (existsSync(join(uploadsDir, filename))) {
                             filename = `${base}-${i++}${ext}`
                         }
+
                         savedFilename = filename
+                        let limitHit = false
                         writePromise = new Promise<void>((res, rej) => {
-                            stream.pipe(createWriteStream(join(uploadsDir, filename)))
-                                .on('close', res)
+                            const writer = createWriteStream(join(uploadsDir, filename))
+                            stream.on('limit', () => {
+                                limitHit = true
+                                writer.destroy()
+                                try { unlinkSync(join(uploadsDir, filename)) } catch { /* ignore */ }
+                                uploadError = 'File exceeds 1 GB limit'
+                            })
+                            stream.pipe(writer)
+                                .on('close', () => limitHit ? rej(new Error(uploadError!)) : res())
                                 .on('error', rej)
                         })
                     })
@@ -213,6 +315,13 @@ export function fieldsApiPlugin(): Plugin {
                         bb.on('error', reject)
                         req.pipe(bb)
                     })
+
+                    if (uploadError) {
+                        res.statusCode = 400
+                        res.end(JSON.stringify({ error: uploadError }))
+                        return
+                    }
+
                     await writePromise
 
                     const folderId = fields.folderId ? Number(fields.folderId) : null

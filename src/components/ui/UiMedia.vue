@@ -16,10 +16,11 @@ defineProps<{
 </template>
 
 <style scoped>
-media {
+.media {
   display: flex;
   flex-direction: column;
   gap: var(--gap-sm);
+
   label {
     font-size: var(--size-sm);
     font-weight: 500;

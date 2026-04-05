@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { getSettings } from '@/api/settings'
+import { getToken } from '@/api/client'
 
 const projectName = ref('Fields')
 const userFirst   = ref('')
@@ -9,7 +10,7 @@ const darkMode    = ref(false)
 let fetched = false
 
 export function useAppSettings() {
-    if (!fetched) {
+    if (!fetched && getToken()) {
         fetched = true
         getSettings()
             .then((data) => {

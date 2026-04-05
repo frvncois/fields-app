@@ -9,9 +9,5 @@ export function useFilters(defs: FilterDef[]) {
         Object.fromEntries(defs.map(d => [d.key, '']))
     )
 
-    function reset() {
-        defs.forEach(d => { values[d.key] = '' })
-    }
-
-    return { defs, values, reset }
+    return { defs, values }
 }

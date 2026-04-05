@@ -1,3 +1,5 @@
+import { apiFetch } from './client'
+
 export type Collection = {
     id: number
     name: string
@@ -7,7 +9,7 @@ export type Collection = {
 }
 
 export async function getCollections(): Promise<Collection[]> {
-    const res = await fetch('/api/field/collections')
+    const res = await apiFetch('/api/field/collections')
     if (!res.ok) throw new Error(`${res.status}`)
     return res.json()
 }

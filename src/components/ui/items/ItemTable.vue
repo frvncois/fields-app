@@ -5,6 +5,7 @@ import { DocumentTextIcon, NewspaperIcon, PaperClipIcon, PencilIcon, TrashIcon }
 import UiCombobox from '@/components/ui/UiCombobox.vue'
 import type { ComboboxItem } from '@/components/ui/UiCombobox.vue'
 import { useAlerts } from '@/composables/useAlerts'
+import { useToast } from '@/composables/useToast'
 import { deleteEntry } from '@/api/entries'
 
 const props = defineProps<{
@@ -21,6 +22,7 @@ const emit = defineEmits<{ deleted: [id: number] }>()
 
 const router = useRouter()
 const { confirm } = useAlerts()
+const { toast } = useToast()
 
 const icon = computed(() => {
     if (props.category === 'page') return DocumentTextIcon
@@ -38,6 +40,7 @@ async function handleDelete() {
     if (!ok) return
     await deleteEntry(props.id)
     emit('deleted', props.id)
+    toast(`"${props.title}" deleted`, 'success')
 }
 
 const actions = computed<ComboboxItem[]>(() => {

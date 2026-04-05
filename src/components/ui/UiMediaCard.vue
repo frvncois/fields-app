@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { EyeIcon, TrashIcon, ArrowUturnUpIcon, ArrowsPointingInIcon } from '@heroicons/vue/24/outline'
 import UiButton from '@/components/ui/UiButton.vue'
 import { useAlerts } from '@/composables/useAlerts'
+import { useToast } from '@/composables/useToast'
 import { deleteMedia } from '@/api/media'
 
 const props = defineProps<{
@@ -22,6 +23,7 @@ const emit = defineEmits<{
 }>()
 
 const { confirm } = useAlerts()
+const { toast } = useToast()
 const isDragging = ref(false)
 
 function onDragStart(e: DragEvent) {
@@ -48,6 +50,7 @@ async function handleDelete() {
     if (!ok) return
     await deleteMedia(props.id)
     emit('deleted', props.id)
+    toast(`"${props.title}" deleted`, 'success')
 }
 </script>
 

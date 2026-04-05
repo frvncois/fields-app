@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3'
 import { join } from 'node:path'
+import { hashSync } from 'bcryptjs'
 import { hoursAgo } from './utils/time'
 
-const DB_PATH = join(process.cwd(), 'fields.db')
+const DB_PATH = process.env.FIELDS_DB_PATH ?? join(process.cwd(), 'fields.db')
 
 export type EntryRow = {
     id: number
@@ -147,7 +148,7 @@ function seedLocales(db: Database.Database) {
 }
 
 function seedUsers(db: Database.Database) {
-    db.prepare('INSERT INTO users (email, password) VALUES (?, ?)').run('test@test.com', '1234')
+    db.prepare('INSERT INTO users (email, password) VALUES (?, ?)').run('test@test.com', hashSync('1234', 10))
 }
 
 function seedFolders(db: Database.Database) {

@@ -1,3 +1,5 @@
+import { apiFetch } from './client'
+
 export type Locale = {
     code: string
     name: string
@@ -5,6 +7,7 @@ export type Locale = {
 }
 
 export async function getLocales(): Promise<Locale[]> {
-    const res = await fetch('/api/field/locales')
+    const res = await apiFetch('/api/field/locales')
+    if (!res.ok) throw new Error(`${res.status}`)
     return res.json()
 }

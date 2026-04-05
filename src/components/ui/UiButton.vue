@@ -5,7 +5,7 @@ import UiTooltip from './UiTooltip.vue'
 defineProps<{
   text?: string
   icon?: Component
-  variant?: 'default' | 'ghost' | 'outline'
+  variant?: 'default' | 'ghost' | 'outline' | 'danger'
   size?: 'default' | 'sm' | 'icon'
   type?: 'button' | 'submit' | 'reset'
   tooltip?: string
@@ -70,5 +70,8 @@ button {
 
   &.variant-outline { background: transparent; color: inherit; border-color: var(--color-border); }
   &.variant-outline:hover:not(:disabled) { background: var(--color-hover-subtle); }
+
+  &.variant-danger { background: var(--color-danger); color: #fff; }
+  &.variant-danger:hover:not(:disabled) { opacity: 0.85; }
 }
 </style>

@@ -17,7 +17,7 @@ const model = defineModel<string>()
   <div class="input">
     <label v-if="label">{{ label }}</label>
     <div class="field" :class="{ 'icon': icon }">
-      <component :is="icon" v-if="icon" class="icon" />
+      <component :is="icon" v-if="icon"/>
       <input
         v-model="model"
         :type="type ?? 'text'"
@@ -43,8 +43,6 @@ const model = defineModel<string>()
     display: flex;
     align-items: center;
 
-    &.icon input { padding-left: var(--space-xl); }
-
     svg {
       position: absolute;
       left: var(--space-md);
@@ -69,6 +67,8 @@ const model = defineModel<string>()
       &.variant-outline { border: 1px solid var(--color-border); background: var(--color-background); }
       &.variant-ghost   { border: 1px solid transparent; background: transparent; }
     }
+
+    &.icon input { padding-left: var(--space-xl); }
   }
 }
 </style>

@@ -1,19 +1,19 @@
 import { ref } from 'vue'
 import { login as apiLogin } from '@/api/auth'
+import { getToken, clearToken } from '@/api/client'
 
-const isAuthenticated = ref(!!localStorage.getItem('fields_auth'))
+const isAuthenticated = ref(!!getToken())
 
 export function useAuth() {
     async function login(email: string, password: string): Promise<boolean> {
         const ok = await apiLogin(email, password)
         if (!ok) return false
-        localStorage.setItem('fields_auth', '1')
         isAuthenticated.value = true
         return true
     }
 
     function logout() {
-        localStorage.removeItem('fields_auth')
+        clearToken()
         isAuthenticated.value = false
     }
 
