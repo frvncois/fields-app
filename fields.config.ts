@@ -8,7 +8,6 @@ const config: FieldsConfig = {
                 { key: 'title',   label: 'Title',        type: 'input',    required: true },
                 { key: 'content', label: 'Rich content', type: 'richtext' },
                 { key: 'gallery', label: 'Gallery',      type: 'media' },
-                { key: 'gallery', label: 'Gallery',      type: 'media' },
                 { key: 'active',  label: 'Active',       type: 'boolean' },
                 {
                     key: 'items', label: 'Items', type: 'repeater',

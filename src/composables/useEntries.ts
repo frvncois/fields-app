@@ -1,49 +1,34 @@
 import { ref } from 'vue'
-import { relativeTime } from '@/utils/time'
 import { getEntries, getEntriesByCollection, getEntry } from '@/api/entries'
 import type { Entry } from '@/api/entries'
 
 export type { Entry }
 
-function mapEntry(raw: Entry): Entry {
-    return { ...raw, createdAt: relativeTime(raw.createdAt), updatedAt: relativeTime(raw.updatedAt) }
-}
+// ─── List composable ─────────────────────────────────────────────────────────
 
 const entries = ref<Entry[]>([])
-const currentEntry = ref<Entry | null>(null)
-const loading = ref(false)
+const listLoading = ref(false)
 
 export function useEntries() {
     async function fetchAll() {
-        loading.value = true
+        listLoading.value = true
         try {
-            entries.value = (await getEntries()).map(mapEntry)
+            entries.value = await getEntries()
         } catch (e) {
             console.error('Failed to fetch entries:', e)
         } finally {
-            loading.value = false
+            listLoading.value = false
         }
     }
 
     async function fetchByCollection(collectionId: number) {
-        loading.value = true
+        listLoading.value = true
         try {
-            entries.value = (await getEntriesByCollection(collectionId)).map(mapEntry)
+            entries.value = await getEntriesByCollection(collectionId)
         } catch (e) {
             console.error('Failed to fetch collection entries:', e)
         } finally {
-            loading.value = false
-        }
-    }
-
-    async function fetchById(id: number) {
-        loading.value = true
-        try {
-            currentEntry.value = mapEntry(await getEntry(id))
-        } catch (e) {
-            console.error('Failed to fetch entry:', e)
-        } finally {
-            loading.value = false
+            listLoading.value = false
         }
     }
 
@@ -51,9 +36,29 @@ export function useEntries() {
         entries.value = entries.value.filter(e => e.id !== id)
     }
 
-    function clearCurrent() {
+    return { entries, loading: listLoading, fetchAll, fetchByCollection, remove }
+}
+
+// ─── Single-entry composable (for editor) ────────────────────────────────────
+
+const currentEntry = ref<Entry | null>(null)
+const entryLoading = ref(false)
+
+export function useEntry() {
+    async function fetchById(id: number) {
+        entryLoading.value = true
+        try {
+            currentEntry.value = await getEntry(id)
+        } catch (e) {
+            console.error('Failed to fetch entry:', e)
+        } finally {
+            entryLoading.value = false
+        }
+    }
+
+    function clear() {
         currentEntry.value = null
     }
 
-    return { entries, currentEntry, loading, fetchAll, fetchByCollection, fetchById, remove, clearCurrent }
+    return { currentEntry, loading: entryLoading, fetchById, clear }
 }

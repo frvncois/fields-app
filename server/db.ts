@@ -20,7 +20,22 @@ export function createDb() {
     const db = new Database(DB_PATH)
     db.pragma('journal_mode = WAL')
 
+    createSchema(db)
+    runMigrations(db)
+    seedIfEmpty(db)
+
+    return db
+}
+
+// ─── Schema ──────────────────────────────────────────────────────────────────
+
+function createSchema(db: Database.Database): void {
     db.exec(`
+        CREATE TABLE IF NOT EXISTS _migrations (
+            version    INTEGER PRIMARY KEY,
+            applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
         CREATE TABLE IF NOT EXISTS settings (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -39,6 +54,7 @@ export function createDb() {
             title           TEXT    NOT NULL,
             slug            TEXT    NOT NULL UNIQUE,
             status          TEXT    NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'published')),
+            data            TEXT    NOT NULL DEFAULT '{}',
             created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
             updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
         );
@@ -70,32 +86,57 @@ export function createDb() {
             password TEXT NOT NULL
         );
     `)
+}
 
-    // Migrations for existing DBs
-    try { db.exec(`ALTER TABLE media ADD COLUMN folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL`) }
-    catch { /* column already exists */ }
-    try { db.exec(`ALTER TABLE entries ADD COLUMN data TEXT NOT NULL DEFAULT '{}'`) }
-    catch { /* column already exists */ }
+// ─── Migrations ───────────────────────────────────────────────────────────────
 
+type Migration = { version: number; up: (db: Database.Database) => void }
+
+const MIGRATIONS: Migration[] = [
+    {
+        version: 1,
+        up(db) {
+            try { db.exec(`ALTER TABLE media ADD COLUMN folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL`) }
+            catch { /* already exists on fresh DBs */ }
+        },
+    },
+    {
+        version: 2,
+        up(db) {
+            try { db.exec(`ALTER TABLE entries ADD COLUMN data TEXT NOT NULL DEFAULT '{}'`) }
+            catch { /* already exists on fresh DBs */ }
+        },
+    },
+]
+
+function runMigrations(db: Database.Database): void {
+    const applied = new Set(
+        (db.prepare('SELECT version FROM _migrations').all() as { version: number }[])
+            .map(r => r.version)
+    )
+
+    const insert = db.prepare('INSERT INTO _migrations (version) VALUES (?)')
+
+    for (const migration of MIGRATIONS) {
+        if (applied.has(migration.version)) continue
+        migration.up(db)
+        insert.run(migration.version)
+        console.log(`  ✦ Migration ${migration.version} applied`)
+    }
+}
+
+// ─── Seed data (runs only on empty database) ─────────────────────────────────
+
+function seedIfEmpty(db: Database.Database): void {
     const { count } = db.prepare('SELECT COUNT(*) as count FROM collections').get() as { count: number }
-    if (count === 0) seedCollections(db)
+    if (count > 0) return
 
-    const { scount } = db.prepare('SELECT COUNT(*) as scount FROM settings').get() as { scount: number }
-    if (scount === 0) seedSettings(db)
-
-    const { lcount } = db.prepare('SELECT COUNT(*) as lcount FROM locales').get() as { lcount: number }
-    if (lcount === 0) seedLocales(db)
-
-    const { fcount } = db.prepare('SELECT COUNT(*) as fcount FROM folders').get() as { fcount: number }
-    if (fcount === 0) seedFolders(db)
-
-    const { mcount } = db.prepare('SELECT COUNT(*) as mcount FROM media').get() as { mcount: number }
-    if (mcount === 0) seedMedia(db)
-
-    const { ucount } = db.prepare('SELECT COUNT(*) as ucount FROM users').get() as { ucount: number }
-    if (ucount === 0) seedUsers(db)
-
-    return db
+    seedCollections(db)
+    seedSettings(db)
+    seedLocales(db)
+    seedFolders(db)
+    seedMedia(db)
+    seedUsers(db)
 }
 
 function seedCollections(db: Database.Database) {

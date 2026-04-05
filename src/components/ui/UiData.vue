@@ -1,11 +1,20 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { Component } from 'vue'
+import { relativeTime } from '@/utils/time'
 
-defineProps<{
+const props = defineProps<{
     icon?: Component
     title: string
     value: string
 }>()
+
+const display = computed(() => {
+    if (/^\d{4}-\d{2}-\d{2}T/.test(props.value)) {
+        return relativeTime(props.value)
+    }
+    return props.value
+})
 </script>
 
 <template>
@@ -14,7 +23,7 @@ defineProps<{
             <component :is="icon" v-if="icon" />
             <span class="title">{{ title }}</span>
         </div>
-        <span class="value">{{ value }}</span>
+        <span class="value">{{ display }}</span>
     </div>
 </template>
 

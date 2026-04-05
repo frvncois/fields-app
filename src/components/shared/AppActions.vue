@@ -9,25 +9,25 @@ import { useToast } from '@/composables/useToast'
 
 const route = useRoute()
 const router = useRouter()
-const { grouped } = useCollections()
+const { all } = useCollections()
 const editorState = useEditorState()
 const { toast } = useToast()
 
 const currentCollection = computed(() => {
     const id = Number(route.params.id)
     if (!id) return null
-    return [...grouped.value.pages, ...grouped.value.collections, ...grouped.value.objects]
-        .find(c => c.id === id) ?? null
+    return all.value.find(c => c.id === id) ?? null
 })
 
 const canAdd = computed(() =>
     route.name === 'list' && currentCollection.value?.type === 'collection'
 )
 
-async function handleSave(status: 'draft' | 'published') {
-    const newId = await editorState.save(status)
+async function handleSave(target: 'draft' | 'published') {
+    editorState.published.value = target === 'published'
+    const newId = await editorState.save()
     if (newId) router.push({ name: 'editor', params: { id: newId } })
-    toast(status === 'published' ? 'Published' : 'Saved', 'success')
+    toast(target === 'published' ? 'Published' : 'Saved', 'success')
 }
 </script>
 

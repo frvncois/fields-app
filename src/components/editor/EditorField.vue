@@ -13,14 +13,22 @@ const props = defineProps<{
     values: FieldValues
 }>()
 
+const emit = defineEmits<{
+    'update:values': [values: FieldValues]
+}>()
+
+function updateField(key: string, value: unknown): void {
+    emit('update:values', { ...props.values, [key]: value })
+}
+
 const strVal = computed<string>({
     get: () => String(props.values[props.field.key] ?? ''),
-    set: (v) => { props.values[props.field.key] = v },
+    set: (v) => updateField(props.field.key, v),
 })
 
 const boolVal = computed<boolean>({
     get: () => Boolean(props.values[props.field.key]),
-    set: (v) => { props.values[props.field.key] = v },
+    set: (v) => updateField(props.field.key, v),
 })
 
 const rows = computed<FieldValues[]>(() => {
@@ -28,17 +36,18 @@ const rows = computed<FieldValues[]>(() => {
     return Array.isArray(val) ? val : []
 })
 
-function addRow() {
-    if (!Array.isArray(props.values[props.field.key])) {
-        props.values[props.field.key] = []
-    }
-    const row: FieldValues = {}
-    props.field.fields?.forEach(f => { row[f.key] = '' })
-    ;(props.values[props.field.key] as FieldValues[]).push(row)
+function addRow(): void {
+    const newRow: FieldValues = {}
+    props.field.fields?.forEach(f => { newRow[f.key] = '' })
+    updateField(props.field.key, [...rows.value, newRow])
 }
 
-function removeRow(i: number) {
-    ;(props.values[props.field.key] as FieldValues[]).splice(i, 1)
+function removeRow(i: number): void {
+    updateField(props.field.key, rows.value.filter((_, idx) => idx !== i))
+}
+
+function updateRow(i: number, newRow: FieldValues): void {
+    updateField(props.field.key, rows.value.map((r, idx) => idx === i ? newRow : r))
 }
 </script>
 
@@ -64,6 +73,7 @@ function removeRow(i: number) {
 
     <UiMedia
         v-else-if="field.type === 'media'"
+        v-model="strVal"
         :label="field.label"
     />
 
@@ -81,6 +91,7 @@ function removeRow(i: number) {
                 :key="subField.key"
                 :field="subField"
                 :values="row"
+                @update:values="updateRow(i, $event)"
             />
             <button class="remove" @click="removeRow(i)">
                 <TrashIcon class="btn-icon" /> Remove

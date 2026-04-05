@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { getCollections } from '@/api/collections'
 import type { Collection } from '@/api/collections'
 
@@ -11,6 +11,11 @@ export type GroupedCollections = {
 }
 
 const grouped = ref<GroupedCollections>({ pages: [], collections: [], objects: [] })
+const all = computed(() => [
+    ...grouped.value.pages,
+    ...grouped.value.collections,
+    ...grouped.value.objects,
+])
 let fetched = false
 
 export function useCollections() {
@@ -30,5 +35,5 @@ export function useCollections() {
             })
     }
 
-    return { grouped }
+    return { grouped, all }
 }

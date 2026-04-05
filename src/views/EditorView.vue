@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import UiInput from '@/components/ui/UiInput.vue'
 import EditorSidebar from '@/components/editor/EditorSidebar.vue'
 import EditorField from '@/components/editor/EditorField.vue'
-import { useEntries } from '@/composables/useEntries'
+import { useEntry } from '@/composables/useEntries'
 import { useEditorState } from '@/composables/useEditorState'
 import { useSchema } from '@/composables/useSchema'
 import { useCollections } from '@/composables/useCollections'
@@ -12,17 +12,16 @@ import { useToast } from '@/composables/useToast'
 
 const route = useRoute()
 const router = useRouter()
-const { currentEntry, fetchById, clearCurrent } = useEntries()
+const { currentEntry, loading, fetchById, clear } = useEntry()
 const editorState = useEditorState()
-const { grouped } = useCollections()
+const { all } = useCollections()
 const { toast } = useToast()
 
 const collectionName = computed<string | null>(() => {
     if (currentEntry.value) return currentEntry.value.collectionName
     const colId = route.query.collection ? Number(route.query.collection) : null
     if (!colId) return null
-    const all = [...grouped.value.pages, ...grouped.value.collections, ...grouped.value.objects]
-    return all.find(c => c.id === colId)?.name ?? null
+    return all.value.find(c => c.id === colId)?.name ?? null
 })
 
 const { fields } = useSchema(collectionName)
@@ -42,7 +41,7 @@ watch(
         } else {
             const colId = route.query.collection ? Number(route.query.collection) : null
             editorState.reset(colId)
-            clearCurrent()
+            clear()
         }
     },
     { immediate: true }
@@ -52,12 +51,13 @@ watch(currentEntry, (entry) => {
     if (entry) {
         editorState.title.value = entry.title
         editorState.fieldValues.value = entry.data ?? {}
+        editorState.published.value = entry.status === 'published'
     }
 })
 </script>
 
 <template>
-    <div class="editor">
+    <div class="editor" v-if="!loading">
         <div class="content">
             <UiInput v-model="editorState.title.value" placeholder="Untitled" variant="ghost" size="lg" />
             <EditorField
@@ -65,14 +65,19 @@ watch(currentEntry, (entry) => {
                 :key="field.key"
                 :field="field"
                 :values="editorState.fieldValues.value"
+                @update:values="editorState.fieldValues.value = $event"
             />
         </div>
         <EditorSidebar
-            :status="currentEntry?.status"
+            v-model:published="editorState.published.value"
+            v-model:meta-title="editorState.metaTitle.value"
+            v-model:meta-description="editorState.metaDescription.value"
+            v-model:slug="editorState.slug.value"
             :created-at="currentEntry?.createdAt"
             :updated-at="currentEntry?.updatedAt"
         />
     </div>
+    <div class="loading" v-else>Loading…</div>
 </template>
 
 <style scoped>
@@ -87,5 +92,10 @@ watch(currentEntry, (entry) => {
         width: var(--content-width);
         margin: auto;
     }
+}
+.loading {
+    padding: var(--space-xl);
+    font-size: var(--size-sm);
+    opacity: 0.5;
 }
 </style>

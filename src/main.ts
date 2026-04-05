@@ -7,6 +7,10 @@ import '@/assets/global.css'
 
 import App from './App.vue'
 import router from './router'
+import { validateConfig } from '@/utils/validateConfig'
+import config from '../fields.config'
+
+validateConfig(config)
 
 new Lenis({ autoRaf: true })
 

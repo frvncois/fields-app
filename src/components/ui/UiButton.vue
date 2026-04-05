@@ -46,8 +46,7 @@ button {
   align-items: center;
   gap: var(--gap-sm);
   cursor: pointer;
-  border-radius: var(--radius-sm);
-  font-weight: 500;
+  border-radius: var(--radius-md);
   font-family: inherit;
   border: 1px solid transparent;
 
@@ -57,7 +56,7 @@ button {
   &.block { width: 100%; justify-content: center; }
 
   &.size-default { padding: var(--space-sm) var(--space-md); font-size: var(--size-sm); }
-  &.size-sm      { padding: var(--space-sm) var(--space-sm); font-size: var(--size-xs); }
+  &.size-sm      { padding: var(--space-sm) var(--space-md); font-size: var(--size-sm); }
   &.size-icon    { padding: var(--space-xs); font-size: var(--size-sm); aspect-ratio: 1; justify-content: center; }
 
   .ui-button-icon { height: 1em; aspect-ratio: 1/1; flex-shrink: 0; }

@@ -5,18 +5,17 @@ import { RouterLink } from 'vue-router'
 import type { RouteLocationRaw } from 'vue-router'
 import { ChevronRightIcon } from '@heroicons/vue/20/solid'
 import { HomeIcon } from '@heroicons/vue/24/outline'
-import { useEntries } from '@/composables/useEntries'
+import { useEntry } from '@/composables/useEntries'
 import { useAppSettings } from '@/composables/useAppSettings'
 import { useCollections } from '@/composables/useCollections'
 
 const route = useRoute()
-const { currentEntry } = useEntries()
+const { currentEntry } = useEntry()
 const { projectName } = useAppSettings()
-const { grouped } = useCollections()
+const { all } = useCollections()
 
 function findCollection(id: number) {
-    const all = [...grouped.value.pages, ...grouped.value.collections, ...grouped.value.objects]
-    return all.find(c => c.id === id)
+    return all.value.find(c => c.id === id)
 }
 
 type Crumb = { label: string; to?: RouteLocationRaw }
@@ -26,8 +25,7 @@ const crumbs = computed((): Crumb[] => {
 
     if (route.name === 'editor' && currentEntry.value) {
         const entry = currentEntry.value
-        const all = [...grouped.value.pages, ...grouped.value.collections, ...grouped.value.objects]
-        const col = all.find(c => c.name === entry.collectionName)
+        const col = all.value.find(c => c.name === entry.collectionName)
         const sectionLabel = entry.category === 'page' ? 'Pages' : entry.type
         const collectionCrumb: Crumb = col
             ? { label: sectionLabel, to: { name: 'list', params: { id: col.id } } }
