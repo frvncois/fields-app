@@ -3,13 +3,14 @@
   "version": "0.0.0",
   "type": "module",
   "description": "Code-first headless CMS — Vite plugin with admin UI, API, and database",
-  "main": "./dist/plugin.js",
+  "main": "./dist/plugin.cjs",
   "module": "./dist/plugin.js",
   "types": "./dist/plugin.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/plugin.js",
-      "types":  "./dist/plugin.d.ts"
+      "types":   "./dist/plugin.d.ts",
+      "import":  "./dist/plugin.js",
+      "require": "./dist/plugin.cjs"
     }
   },
   "bin": {

@@ -2,7 +2,7 @@ import { defineConfig } from 'tsup'
 
 export default defineConfig({
     entry: ['src/plugin.ts', 'src/db.ts', 'src/utils/validateConfig.ts'],
-    format: ['esm'],
+    format: ['esm', 'cjs'],
     dts: true,
     outDir: 'dist',
     // Keep optional provider SDKs as external — they're not always installed
