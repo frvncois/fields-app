@@ -23,7 +23,9 @@ Vue 3 SPA using Vite, TypeScript, Vue Router, and Pinia. This is a headless CMS 
 
 **Routing (`src/router/index.ts`)** — Three routes: `dashboard`, `editor`, `list`. All use named routes for navigation.
 
-**Layout (`src/App.vue`)** — CSS grid with `var(--nav-width)` and `var(--header-height)` custom properties defined in `src/assets/global.css`. `SharedNav` spans both grid rows. Global sheets (`SettingsSheet`, `MediaLibrarySheet`) are mounted here at root level.
+**Layout (`src/layouts/LayoutApp.vue`)** — CSS grid with `var(--nav-width)` and `var(--header-height)` custom properties defined in `src/assets/global.css`. `SharedNav` spans both grid rows. Global sheets (`SheetSettings`, `SheetStorage`), modals (`ModalAlert`, `ModalConvert`), and `UiToast` are mounted here at root level.
+
+**Backend (`server/plugin.ts`)** — A Vite plugin that registers Express-style route handlers under `/api/field/*`. Uses `better-sqlite3` (WAL mode) with the DB at `process.env.FIELDS_DB_PATH` or `fields.db`. All routes except `/api/field/auth/login` require a valid JWT Bearer token. Brute force protection: 5 failed attempts per IP per 15 min locks the login route.
 
 ## Component conventions
 
@@ -31,15 +33,25 @@ Vue 3 SPA using Vite, TypeScript, Vue Router, and Pinia. This is a headless CMS 
 
 **`src/components/shared/`** — App-specific composed components (`SharedNav`, `SharedHeader`, `AppActions`, `AppBreadcrumbs`). `AppActions` is route-aware and renders different buttons based on `route.name`.
 
+**`src/components/modal/`** — Modal content components (`ModalAlert`, `ModalConvert`). Each wraps `UiModal` and pulls state from its own composable (`useAlerts`, `useConvert`).
+
+**`src/components/sheet/`** — Slide-in panel content components (`SheetSettings`, `SheetStorage`). Each wraps `UiSheet` and pulls state from its own composable (`useSettingsSheet`, `useStorage`).
+
 **`src/components/editor/`** — Editor-specific components (`EditorSidebar`). The sidebar uses `align-self: start` + `position: sticky; top: var(--header-height)` to stick below the header — required because CSS grid stretches items by default.
 
 **`src/components/ui/items/`** — Row-level item components rendered inside list/table containers.
 
 **`src/assets/icons/`** — Custom SVG Vue components, all using `stroke="currentColor"`. Use Heroicons (`@heroicons/vue/24/outline`, `/20/solid`, `/16/solid`) for standard icons; custom icons in `src/assets/icons/` for app-specific shapes.
 
+## API layer (`src/api/`)
+
+`src/api/client.ts` is the HTTP foundation — use `apiFetch` for all API calls. It attaches the Bearer token, and on 401 clears the token and redirects to `/login` (guarded to avoid redirect loops on the login page itself). Token helpers: `getToken()`, `setToken()`, `clearToken()` (backed by `localStorage`).
+
+Each resource has its own module (`auth.ts`, `entries.ts`, `media.ts`, `settings.ts`, etc.) that calls `apiFetch`. Always check `res.ok` before reading the response body.
+
 ## Global state pattern
 
-Composables in `src/composables/` that manage UI state (sheets, etc.) use **module-level refs** (declared outside the function) so state is shared as a singleton across all consumers — no Pinia needed for simple open/close state.
+Composables in `src/composables/` that manage UI state use **module-level refs** (declared outside the function) so state is shared as a singleton across all consumers — no Pinia needed for simple open/close state.
 
 ```ts
 const isOpen = ref(false)  // module-level = shared singleton
@@ -49,7 +61,13 @@ export function useMySheet() {
 }
 ```
 
-Currently: `useSettingsSheet`, `useMediaLibrary`.
+**`useAlerts`** — Modal confirm/prompt system. Call `confirm(opts)` or `prompt(opts)` anywhere; returns a Promise resolved when the user responds. `variant: 'danger'` shows a `TrashIcon` in the modal body.
+
+**`useToast`** — Fire-and-forget toasts. Call `toast(message, type)` with type `'default' | 'success' | 'error'`. Auto-dismisses after 4 s.
+
+## UiModal
+
+Generic modal shell using `Teleport` + `Transition`. Props: `open: boolean`. Emits: `close`. Closes on backdrop mousedown. Use `ModalAlert`/`ModalConvert` as reference for the content slot pattern.
 
 ## UiSheet
 
@@ -58,6 +76,10 @@ Generic slide-in panel using `Teleport` + `Transition`. Closes on mousedown/focu
 - `anchor="nav"` — slides from left, positioned at `left: var(--nav-width)`, z-index 50 (under `SharedNav` at z-index 60)
 - `anchor="right"` (default) — slides from right at `right: 0`
 - No backdrop/overlay
+
+## UiButton variants
+
+`variant?: 'default' | 'ghost' | 'outline' | 'danger'` — `danger` uses `var(--color-danger)` background with white text.
 
 ## Reusable composables
 
