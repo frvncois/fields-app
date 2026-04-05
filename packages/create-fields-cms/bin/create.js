@@ -275,10 +275,10 @@ s.stop('npm scripts added')
 
 s.start('Installing fields')
 try {
-    execSync('npm install --save-dev fields', { cwd, stdio: 'pipe' })
+    execSync('npm install --save-dev vite fields', { cwd, stdio: 'pipe' })
     s.stop('fields installed')
 } catch {
-    s.stop('fields install failed — run: npm install --save-dev fields')
+    s.stop('fields install failed — run: npm install --save-dev vite fields')
 }
 
 s.start('Running initial migration')
@@ -291,16 +291,17 @@ try {
 
 // Create the first admin user
 s.start('Creating admin account')
-try {
-    const result = spawnSync(
-        'node',
-        ['node_modules/fields/bin/fields.js', 'add-user', '--email', adminEmail.trim(), '--password', adminPw],
-        { cwd, stdio: 'pipe' }
-    )
-    if (result.status !== 0) throw new Error(result.stderr?.toString())
+const adminResult = spawnSync(
+    'node',
+    ['node_modules/fields/bin/fields.js', 'add-user', '--email', adminEmail, '--password', adminPw],
+    { cwd, stdio: 'pipe' }
+)
+if (adminResult.status === 0) {
     s.stop('Admin account created')
-} catch {
-    s.stop('Run: npm run fields:add-user to create your admin account')
+} else {
+    s.stop('Could not create admin user automatically')
+    console.log('  ⚠  Could not create admin user automatically.')
+    console.log('     Run: npm run fields:add-user')
 }
 
 outro(`
