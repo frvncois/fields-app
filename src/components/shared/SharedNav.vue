@@ -36,7 +36,7 @@ function toList(id: number) {
 async function openPage(collectionId: number) {
     const entries = await getEntriesByCollection(collectionId)
     if (entries.length > 0) {
-        router.push({ name: 'editor', params: { id: entries[0].id } })
+        router.push({ name: 'editor', params: { id: entries[0]!.id } })
     } else {
         router.push({ name: 'editor', query: { collection: collectionId } })
     }

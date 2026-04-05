@@ -11,10 +11,21 @@ export function json(res: Res, data: unknown, status = 200): void {
     res.end(JSON.stringify(data))
 }
 
+const MAX_BODY = 1_048_576 // 1 MB
+
 export function readJson(req: Req): Promise<Record<string, unknown>> {
     return new Promise((resolve, reject) => {
         let body = ''
-        req.on('data', chunk => { body += chunk.toString() })
+        let size = 0
+        req.on('data', (chunk: Buffer) => {
+            size += chunk.length
+            if (size > MAX_BODY) {
+                req.destroy()
+                reject(Object.assign(new Error('Payload too large'), { status: 413 }))
+                return
+            }
+            body += chunk.toString()
+        })
         req.on('end', () => {
             try { resolve(JSON.parse(body)) }
             catch { reject(new Error('Invalid JSON')) }

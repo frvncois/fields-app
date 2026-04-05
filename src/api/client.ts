@@ -1,30 +1,23 @@
-const TOKEN_KEY = 'fields_token'
+const AUTH_HINT = 'fields_auth'
 
-export function getToken(): string | null {
-    return localStorage.getItem(TOKEN_KEY)
+export function setAuthHint(): void {
+    localStorage.setItem(AUTH_HINT, '1')
 }
 
-export function setToken(token: string): void {
-    localStorage.setItem(TOKEN_KEY, token)
+export function clearAuthHint(): void {
+    localStorage.removeItem(AUTH_HINT)
 }
 
-export function clearToken(): void {
-    localStorage.removeItem(TOKEN_KEY)
+export function hasAuthHint(): boolean {
+    return localStorage.getItem(AUTH_HINT) === '1'
 }
 
 export async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
-    const token = getToken()
+    const res = await fetch(input, { ...init, credentials: 'include' })
 
-    const headers = new Headers(init.headers)
-    if (token) headers.set('Authorization', `Bearer ${token}`)
-
-    const res = await fetch(input, { ...init, headers })
-
-    if (res.status === 401) {
-        clearToken()
-        if (!window.location.pathname.startsWith('/login')) {
-            window.location.href = '/login'
-        }
+    if (res.status === 401 && !window.location.pathname.startsWith('/login')) {
+        clearAuthHint()
+        window.location.href = '/login'
     }
 
     return res

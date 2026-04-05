@@ -9,7 +9,7 @@ export type Collection = {
 }
 
 export async function getCollections(): Promise<Collection[]> {
-    const res = await apiFetch('/api/field/collections')
+    const res = await apiFetch('/api/fields/collections')
     if (!res.ok) throw new Error(`${res.status}`)
     return res.json()
 }

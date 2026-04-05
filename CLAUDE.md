@@ -25,7 +25,7 @@ Vue 3 SPA using Vite, TypeScript, Vue Router, and Pinia. This is a headless CMS 
 
 **Layout (`src/layouts/LayoutApp.vue`)** — CSS grid with `var(--nav-width)` and `var(--header-height)` custom properties defined in `src/assets/global.css`. `SharedNav` spans both grid rows. Global sheets (`SheetSettings`, `SheetStorage`), modals (`ModalAlert`, `ModalConvert`), and `UiToast` are mounted here at root level.
 
-**Backend (`server/plugin.ts`)** — A thin Vite plugin router that delegates all `/api/field/*` routes to handlers in `server/handlers/`. JWT helpers (`signToken`, `verifyToken`, `getBearer`) live in `server/auth.ts`. DB schema + migration tracking (`_migrations` table) + seeding are in `server/db.ts`. All routes except `/api/field/auth/login` require a valid JWT Bearer token. Brute force protection: 5 failed attempts per IP per 15 min locks the login route.
+**Backend (`server/plugin.ts`)** — A thin Vite plugin router that delegates all `/api/fields/*` routes to handlers in `server/handlers/`. JWT helpers (`signToken`, `verifyToken`, `getBearer`) live in `server/auth.ts`. DB schema + migration tracking (`_migrations` table) + seeding are in `server/db.ts`. All routes except `/api/fields/auth/login` require a valid JWT set as an httpOnly cookie (`fields_token`). Brute force protection: 5 failed attempts per IP per 15 min locks the login route. Rate limiter uses `socket.remoteAddress` by default; set `FIELDS_TRUST_PROXY=true` to trust the rightmost X-Forwarded-For IP.
 
 ## Component conventions
 
@@ -45,7 +45,7 @@ Vue 3 SPA using Vite, TypeScript, Vue Router, and Pinia. This is a headless CMS 
 
 ## API layer (`src/api/`)
 
-`src/api/client.ts` is the HTTP foundation — use `apiFetch` for all API calls. It attaches the Bearer token, and on 401 clears the token and redirects to `/login` (guarded to avoid redirect loops on the login page itself). Token helpers: `getToken()`, `setToken()`, `clearToken()` (backed by `localStorage`).
+`src/api/client.ts` is the HTTP foundation — use `apiFetch` for all API calls. Auth is cookie-based (httpOnly `fields_token` set by the server); `apiFetch` always passes `credentials: 'include'`. On 401, clears the local auth hint and redirects to `/login`. Auth hint helpers: `hasAuthHint()`, `setAuthHint()`, `clearAuthHint()` (non-sensitive localStorage flag, not the token).
 
 Each resource has its own module (`auth.ts`, `entries.ts`, `media.ts`, `settings.ts`, etc.) that calls `apiFetch`. Always check `res.ok` before reading the response body.
 

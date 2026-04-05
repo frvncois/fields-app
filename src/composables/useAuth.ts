@@ -1,20 +1,20 @@
 import { ref } from 'vue'
-import { login as apiLogin } from '@/api/auth'
-import { getToken, clearToken } from '@/api/client'
+import { login as apiLogin, logout as apiLogout } from '@/api/auth'
+import { hasAuthHint, clearAuthHint } from '@/api/client'
 
-const isAuthenticated = ref(!!getToken())
+const isAuthenticated = ref(hasAuthHint())
 
 export function useAuth() {
     async function login(email: string, password: string): Promise<boolean> {
         const ok = await apiLogin(email, password)
-        if (!ok) return false
-        isAuthenticated.value = true
-        return true
+        if (ok) isAuthenticated.value = true
+        return ok
     }
 
-    function logout() {
-        clearToken()
+    async function logout() {
+        clearAuthHint()
         isAuthenticated.value = false
+        await apiLogout()
     }
 
     return { isAuthenticated, login, logout }
