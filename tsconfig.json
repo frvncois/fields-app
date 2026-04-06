@@ -1,0 +1,11 @@
+{
+    "compilerOptions": {
+        "module": "preserve",
+        "moduleResolution": "bundler",
+        "noEmit": true,
+        "paths": {
+            "@fields-cms/fields": ["./packages/fields/src/plugin.ts"]
+        }
+    },
+    "include": ["fields.config.ts"]
+}

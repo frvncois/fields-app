@@ -1,22 +1,14 @@
-import type { FieldsConfig } from './src/types/schema'
+import type { FieldsConfig } from '@fields-cms/fields'
 
 const config: FieldsConfig = {
     collections: [
         {
             name: 'home',
+            label: 'Home',
+            type: 'page',
             fields: [
-                { key: 'title',   label: 'Title',        type: 'input',    required: true },
-                { key: 'content', label: 'Rich content', type: 'richtext' },
-                { key: 'gallery', label: 'Gallery',      type: 'media' },
-                { key: 'active',  label: 'Active',       type: 'boolean' },
-                {
-                    key: 'items', label: 'Items', type: 'repeater',
-                    fields: [
-                        { key: 'name', label: 'Name', type: 'input' },
-                        { key: 'body', label: 'Body', type: 'textarea' },
-                        { key: 'file', label: 'File', type: 'media' },
-                    ],
-                },
+                { key: 'title',   label: 'Title',   type: 'input',    required: true },
+                { key: 'content', label: 'Content', type: 'richtext' },
             ],
         },
     ],

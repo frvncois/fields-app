@@ -2,10 +2,6 @@ import jwt from 'jsonwebtoken'
 import { randomBytes, randomUUID } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
 
-if (process.env.NODE_ENV === 'production' && !process.env.FIELDS_JWT_SECRET) {
-    throw new Error('FIELDS_JWT_SECRET env var must be set in production')
-}
-
 export const JWT_SECRET = process.env.FIELDS_JWT_SECRET ?? randomBytes(32).toString('hex')
 const JWT_EXPIRES = '1d'
 const COOKIE_MAX_AGE = 24 * 60 * 60 // 1 day in seconds

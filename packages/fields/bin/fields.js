@@ -11,7 +11,6 @@
 import { createRequire } from 'node:module'
 import { resolve, join } from 'node:path'
 import { existsSync } from 'node:fs'
-import { pathToFileURL } from 'node:url'
 
 const require = createRequire(import.meta.url)
 
@@ -35,7 +34,10 @@ async function loadConfig() {
         fail('fields.config.ts not found in project root. Run: npm create fields-cms@latest')
     }
     try {
-        const mod = await import(pathToFileURL(configPath).href)
+        const { createServer } = await import('vite')
+        const vite = await createServer({ server: { middlewareMode: true } })
+        const mod = await vite.ssrLoadModule(configPath)
+        await vite.close()
         return mod.default
     } catch (err) {
         fail(`Failed to load fields.config.ts: ${err.message}`)

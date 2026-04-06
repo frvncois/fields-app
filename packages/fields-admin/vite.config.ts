@@ -4,10 +4,7 @@ import { defineConfig } from 'vite'
 import type { Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
-
-// ─── Virtual config module ────────────────────────────────────────────────────
-// Dev:  re-exports the monorepo root's fields.config.ts (HMR works naturally)
-// Prod: exports window.__FIELDS_CONFIG__, injected by the fields plugin at runtime
+import { fieldsPlugin } from '../fields/src/plugin'
 
 function fieldsVirtualConfigPlugin(): Plugin {
     const isProd = process.env.NODE_ENV === 'production'
@@ -21,20 +18,19 @@ function fieldsVirtualConfigPlugin(): Plugin {
             if (isProd) {
                 return `export default window.__FIELDS_CONFIG__`
             }
-            // In monorepo dev: load the root fields.config.ts two levels up
             const configPath = resolve(__dirname, '../../fields.config.ts')
             return `export { default } from ${JSON.stringify(configPath)}`
         },
     }
 }
 
-// https://vite.dev/config/
 export default defineConfig({
     base: '/fields',
     plugins: [
         vue(),
         ...(process.env.NODE_ENV !== 'production' ? [vueDevTools()] : []),
         fieldsVirtualConfigPlugin(),
+        ...fieldsPlugin(),
     ],
     resolve: {
         alias: {

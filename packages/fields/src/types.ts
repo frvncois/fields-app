@@ -14,6 +14,8 @@ export type FieldValues = Record<string, unknown>
 
 export type CollectionSchema = {
     name: string
+    label?: string
+    type?: 'page' | 'collection' | 'object'
     fields: FieldDef[]
 }
 

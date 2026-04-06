@@ -56,22 +56,25 @@ async function openPage(collectionId: number) {
                 <UiNav title="Storage" :icon="PhotoIcon" :action="openStorage" :active="isStorageOpen" />
 
                 <UiNav
-                    v-if="grouped.pages.length"
                     title="Pages"
                     :icon="DocumentTextIcon"
-                    :children="grouped.pages.map(c => ({ title: c.label, action: () => openPage(c.id) }))"
+                    :children="grouped.pages.length
+                        ? grouped.pages.map(c => ({ title: c.label, action: () => openPage(c.id) }))
+                        : [{ title: 'No pages yet' }]"
                 />
                 <UiNav
-                    v-if="grouped.collections.length"
                     title="Collections"
                     :icon="FolderIcon"
-                    :children="grouped.collections.map(c => ({ title: c.label, to: toList(c.id) }))"
+                    :children="grouped.collections.length
+                        ? grouped.collections.map(c => ({ title: c.label, to: toList(c.id) }))
+                        : [{ title: 'No collections yet' }]"
                 />
                 <UiNav
-                    v-if="grouped.objects.length"
                     title="Objects"
                     :icon="PaperClipIcon"
-                    :children="grouped.objects.map(c => ({ title: c.label, to: toList(c.id) }))"
+                    :children="grouped.objects.length
+                        ? grouped.objects.map(c => ({ title: c.label, to: toList(c.id) }))
+                        : [{ title: 'No objects yet' }]"
                 />
             </div>
             <UiUser

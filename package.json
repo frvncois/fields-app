@@ -8,7 +8,9 @@
   "scripts": {
     "dev": "npm run dev --workspace=packages/fields-admin",
     "build": "npm run build --workspace=packages/fields-admin && npm run build --workspace=packages/fields",
-    "type-check": "npm run type-check --workspace=packages/fields-admin && npm run type-check --workspace=packages/fields"
+    "type-check": "npm run type-check --workspace=packages/fields-admin && npm run type-check --workspace=packages/fields",
+    "fields:migrate": "node packages/fields/bin/fields.js migrate",
+    "fields:add-user": "node packages/fields/bin/fields.js add-user"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

@@ -4,7 +4,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createDb } from './db'
-import { verifyToken, getBearer } from './auth'
+import { verifyToken } from './auth'
 import { getClientIp } from './utils/ip'
 import { handleLogin, handleLogout, handleChangePassword } from './handlers/auth'
 import { handleSetupCheck, handleSetupCreate } from './handlers/setup'
@@ -20,6 +20,14 @@ import { json } from './handlers/types'
 import { LocalAdapter } from './adapters/storage/local'
 import type { FieldsConfig, FieldsOptions, DatabaseAdapter, StorageAdapter } from './types'
 
+// ─── Cookie auth ──────────────────────────────────────────────────────────────
+
+function getTokenFromCookie(req: IncomingMessage): string | null {
+    const cookies = req.headers.cookie ?? ''
+    const match = cookies.match(/fields_token=([^;]+)/)
+    return match ? match[1] : null
+}
+
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
 const ALLOWED_ORIGINS = process.env.FIELDS_ALLOWED_ORIGINS
@@ -29,10 +37,16 @@ const ALLOWED_ORIGINS = process.env.FIELDS_ALLOWED_ORIGINS
 // ─── Security headers ─────────────────────────────────────────────────────────
 
 function addSecurityHeaders(res: ServerResponse): void {
+    const isDev = process.env.NODE_ENV !== 'production'
     res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader('X-Frame-Options', 'DENY')
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
-    res.setHeader('Content-Security-Policy', "default-src 'self'")
+    res.setHeader(
+        'Content-Security-Policy',
+        isDev
+            ? "default-src 'self' 'unsafe-inline' 'unsafe-eval'"
+            : "default-src 'self'"
+    )
 }
 
 // ─── CORS handling ────────────────────────────────────────────────────────────
@@ -223,7 +237,7 @@ async function dispatch(
     if (!checkAuthRateLimit(req, res, db)) return
 
     // Auth guard
-    const token = getBearer(req)
+    const token = getTokenFromCookie(req)
     const payload = token ? verifyToken(token) : null
     if (!payload) return unauthorized(res)
 
@@ -301,6 +315,15 @@ export function fieldsPlugin(options: FieldsOptions = {}): Plugin[] {
     let projectRoot: string
     let adminDir: string
 
+    async function syncCollections() {
+        for (const col of userConfig.collections) {
+            db.run(
+                'INSERT INTO collections (name, label, type) VALUES (?, ?, ?) ON CONFLICT(name) DO NOTHING',
+                [col.name, col.label ?? col.name, col.type ?? 'collection']
+            )
+        }
+    }
+
     const virtualConfigPlugin: Plugin = {
         name: 'fields-virtual-config',
         enforce: 'pre',
@@ -314,6 +337,7 @@ export function fieldsPlugin(options: FieldsOptions = {}): Plugin[] {
         async handleHotUpdate({ file }) {
             if (file.endsWith(configFile)) {
                 userConfig = await loadUserConfig(projectRoot, configFile)
+                await syncCollections()
             }
         },
     }
@@ -322,12 +346,19 @@ export function fieldsPlugin(options: FieldsOptions = {}): Plugin[] {
         name: 'fields-api',
 
         async configureServer(server) {
+            if (process.env.NODE_ENV === 'production' && !process.env.FIELDS_JWT_SECRET) {
+                throw new Error('FIELDS_JWT_SECRET env var must be set in production')
+            }
             projectRoot = server.config.root
             adminDir = join(__dirname, '..', 'dist', 'admin')
 
-            db = options.db ?? createDb()
+            db = options.db ?? createDb({ root: projectRoot })
             storage = options.storage ?? new LocalAdapter(projectRoot)
             userConfig = await loadUserConfig(projectRoot, configFile)
+            console.log('  ✦ Syncing collections from fields.config.ts...')
+            await syncCollections()
+            const cols = db.query<{ name: string }>('SELECT name FROM collections')
+            console.log('  ✦ Collections in DB:', cols.map(c => c.name))
 
             console.log('  ✦ Fields API ready  →  /api/fields')
             console.log('  ✦ Fields admin UI   →  /fields')

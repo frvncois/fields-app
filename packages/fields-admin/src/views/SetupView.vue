@@ -10,6 +10,9 @@ import { markSetupComplete } from '@/router'
 
 const router = useRouter()
 
+const projectName = ref('')
+const firstName = ref('')
+const lastName = ref('')
 const email = ref('')
 const password = ref('')
 const confirm = ref('')
@@ -18,6 +21,18 @@ const loading = ref(false)
 
 async function handleSetup() {
     error.value = ''
+    if (!projectName.value.trim()) {
+        error.value = 'Project name is required.'
+        return
+    }
+    if (!firstName.value.trim()) {
+        error.value = 'First name is required.'
+        return
+    }
+    if (!lastName.value.trim()) {
+        error.value = 'Last name is required.'
+        return
+    }
     if (password.value !== confirm.value) {
         error.value = 'Passwords do not match.'
         return
@@ -27,7 +42,7 @@ async function handleSetup() {
         return
     }
     loading.value = true
-    const ok = await createAdmin(email.value, password.value)
+    const ok = await createAdmin(projectName.value.trim(), firstName.value.trim(), lastName.value.trim(), email.value, password.value)
     loading.value = false
     if (ok) {
         setAuthHint()
@@ -51,6 +66,9 @@ async function handleSetup() {
             </div>
         </div>
         <form class="form" @submit.prevent="handleSetup">
+            <UiInput v-model="projectName" label="Project name" placeholder="My Project" />
+            <UiInput v-model="firstName" label="First name" placeholder="Jane" />
+            <UiInput v-model="lastName" label="Last name" placeholder="Smith" />
             <UiInput v-model="email" label="Email" placeholder="you@example.com" type="email" />
             <UiInput v-model="password" label="Password" placeholder="Min. 8 characters" type="password" />
             <UiInput v-model="confirm" label="Confirm password" placeholder="Repeat password" type="password" />

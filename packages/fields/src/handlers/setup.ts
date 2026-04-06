@@ -17,6 +17,24 @@ export async function handleSetupCreate(req: Req, res: Res, db: Db): Promise<voi
 
     const body = await readJson(req)
 
+    const projectName = typeof body.projectName === 'string' ? body.projectName.trim() : ''
+    if (!projectName || projectName.length > 100) {
+        json(res, { error: 'Project name is required and must be under 100 characters' }, 400)
+        return
+    }
+
+    const firstName = typeof body.firstName === 'string' ? body.firstName.trim() : ''
+    if (!firstName || firstName.length > 100) {
+        json(res, { error: 'First name is required and must be under 100 characters' }, 400)
+        return
+    }
+
+    const lastName = typeof body.lastName === 'string' ? body.lastName.trim() : ''
+    if (!lastName || lastName.length > 100) {
+        json(res, { error: 'Last name is required and must be under 100 characters' }, 400)
+        return
+    }
+
     const email = typeof body.email === 'string' ? body.email.trim() : ''
     if (!email || !email.includes('@')) {
         json(res, { error: 'Valid email required' }, 400)
@@ -32,6 +50,23 @@ export async function handleSetupCreate(req: Req, res: Res, db: Db): Promise<voi
     const { lastInsertRowid } = db.run(
         'INSERT INTO users (email, password) VALUES (?, ?)',
         [email, hashSync(password, 12)]
+    )
+
+    db.run(
+        'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        ['user_first', firstName]
+    )
+    db.run(
+        'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        ['user_last', lastName]
+    )
+    db.run(
+        'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        ['user_email', email]
+    )
+    db.run(
+        'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        ['project_name', projectName]
     )
 
     const token = signToken(Number(lastInsertRowid))
