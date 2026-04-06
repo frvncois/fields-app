@@ -29,15 +29,18 @@ function randomKey(): string {
 }
 
 function toSlug(db: Db, collectionName: string, title: string): string {
-    const base = title.toLowerCase()
+    const col = db.get<{ type: string }>('SELECT type FROM collections WHERE name = ?', [collectionName])
+    const base = title
+        .toLowerCase()
         .replace(/\s+/g, '-')
         .replace(/[^a-z0-9-]/g, '')
         .replace(/-+/g, '-')
         .replace(/^-|-$/g, '')
-    let slug = `/${collectionName}/${base}`
+    const prefix = col?.type === 'page' ? '' : `/${collectionName}`
+    let slug = `${prefix}/${base}`
     let i = 2
     while (db.get('SELECT 1 FROM entries WHERE slug = ?', [slug])) {
-        slug = `/${collectionName}/${base}-${i++}`
+        slug = `${prefix}/${base}-${i++}`
     }
     return slug
 }

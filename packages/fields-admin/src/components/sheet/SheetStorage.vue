@@ -258,7 +258,7 @@ async function moveMedia(mediaId: number, folderId: number | null) {
             </div>
 
             <div v-if="currentFolder" class="breadcrumb">
-                <UiButton variant="ghost" @click="currentFolderId = null">All media</UiButton>
+                <UiButton variant="ghost" text="All media" @click="currentFolderId = null" />
                 <span>/</span>
                 <span>{{ currentFolder.name }}</span>
             </div>

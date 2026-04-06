@@ -31,17 +31,16 @@ function ok(msg) {
 async function loadConfig() {
     const configPath = resolve(cwd, 'fields.config.ts')
     if (!existsSync(configPath)) {
-        fail('fields.config.ts not found in project root. Run: npm create fields-cms@latest')
+        fail('fields.config.ts not found.')
     }
-    try {
-        const { createServer } = await import('vite')
-        const vite = await createServer({ server: { middlewareMode: true } })
-        const mod = await vite.ssrLoadModule(configPath)
-        await vite.close()
-        return mod.default
-    } catch (err) {
-        fail(`Failed to load fields.config.ts: ${err.message}`)
-    }
+    const { loadConfigFromFile } = await import('vite')
+    const result = await loadConfigFromFile(
+        { command: 'serve', mode: 'development' },
+        configPath,
+        cwd
+    )
+    if (!result) fail('Could not load fields.config.ts')
+    return result.config
 }
 
 async function loadDb() {
@@ -98,7 +97,16 @@ async function migrate() {
     // Apply additive changes immediately
     for (const col of toAdd) {
         db.run('INSERT OR IGNORE INTO collections (name, label, type) VALUES (?, ?, ?)',
-            [col.name, col.name.charAt(0).toUpperCase() + col.name.slice(1), 'collection'])
+            [col.name, col.label ?? col.name.charAt(0).toUpperCase() + col.name.slice(1), col.type ?? 'collection'])
+        if (col.type === 'page') {
+            const existing = db.get('SELECT id FROM entries WHERE collection_name = ?', [col.name])
+            if (!existing) {
+                db.run(
+                    'INSERT INTO entries (collection_name, title, slug, status) VALUES (?, ?, ?, ?)',
+                    [col.name, col.label ?? col.name, '/' + col.name, 'draft']
+                )
+            }
+        }
         ok(`Added collection: ${col.name}`)
     }
 

@@ -20,6 +20,23 @@ import { json } from './handlers/types'
 import { LocalAdapter } from './adapters/storage/local'
 import type { FieldsConfig, FieldsOptions, DatabaseAdapter, StorageAdapter } from './types'
 
+// ─── Project root detection ───────────────────────────────────────────────────
+
+function findProjectRoot(startDir: string): string {
+    let dir = startDir
+    while (true) {
+        const pkgPath = join(dir, 'package.json')
+        if (existsSync(pkgPath)) {
+            const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { workspaces?: unknown; name?: string }
+            if (pkg.workspaces) return dir
+            if (pkg.name !== 'fields-admin') return dir
+        }
+        const parent = join(dir, '..')
+        if (parent === dir) return startDir
+        dir = parent
+    }
+}
+
 // ─── Cookie auth ──────────────────────────────────────────────────────────────
 
 function getTokenFromCookie(req: IncomingMessage): string | null {
@@ -321,6 +338,15 @@ export function fieldsPlugin(options: FieldsOptions = {}): Plugin[] {
                 'INSERT INTO collections (name, label, type) VALUES (?, ?, ?) ON CONFLICT(name) DO NOTHING',
                 [col.name, col.label ?? col.name, col.type ?? 'collection']
             )
+            if (col.type === 'page') {
+                const existing = db.get('SELECT id FROM entries WHERE collection_name = ?', [col.name])
+                if (!existing) {
+                    db.run(
+                        'INSERT INTO entries (collection_name, title, slug, status) VALUES (?, ?, ?, ?)',
+                        [col.name, col.label ?? col.name, '/' + col.name, 'draft']
+                    )
+                }
+            }
         }
     }
 
@@ -349,7 +375,7 @@ export function fieldsPlugin(options: FieldsOptions = {}): Plugin[] {
             if (process.env.NODE_ENV === 'production' && !process.env.FIELDS_JWT_SECRET) {
                 throw new Error('FIELDS_JWT_SECRET env var must be set in production')
             }
-            projectRoot = server.config.root
+            projectRoot = findProjectRoot(server.config.root)
             adminDir = join(__dirname, '..', 'dist', 'admin')
 
             db = options.db ?? createDb({ root: projectRoot })

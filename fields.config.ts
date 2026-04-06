@@ -11,6 +11,15 @@ const config: FieldsConfig = {
                 { key: 'content', label: 'Content', type: 'richtext' },
             ],
         },
+        {
+            name: 'about',
+            label: 'About',
+            type: 'page',
+            fields: [
+                { key: 'title',   label: 'Title',   type: 'input',    required: true },
+                { key: 'content', label: 'Content', type: 'richtext' },
+            ],
+        },
     ],
 }
 

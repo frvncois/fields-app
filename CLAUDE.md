@@ -11,7 +11,8 @@ fields-app/
     fields-admin/     # Vue 3 SPA — admin UI (builds into packages/fields/dist/admin/)
     create-fields-cms/ # npm init wizard — `npm create fields-cms`
   fields.config.ts    # User's collection schema (dev only, not shipped)
-  fields.db           # SQLite database (dev only)
+  fields.db           # SQLite database (dev only, at repo root)
+  tsconfig.json       # Root tsconfig — maps @fields-cms/fields for fields.config.ts type checking
 ```
 
 ## Commands
@@ -21,6 +22,8 @@ npm install                          # Install all workspace dependencies (trigg
 npm run dev                          # Start fields-admin dev server (Vite HMR)
 npm run build                        # Build fields-admin then fields package
 npm run type-check                   # vue-tsc (admin) + tsc (fields runtime)
+npm run fields:migrate               # Sync fields.config.ts collections into the DB
+npm run fields:add-user              # Interactively add an admin user
 
 # Per-package
 npm run dev      -w packages/fields-admin
@@ -32,14 +35,24 @@ npm run type-check -w packages/fields
 
 No linting or test runner is configured.
 
+**Important**: The admin SPA is served from `dist/admin/` even in dev (the plugin's middleware intercepts `/fields/*` before Vite's own serving). After changing any `fields-admin` source, run `npm run build -w packages/fields-admin` for changes to take effect. Then delete `fields.db` and restart.
+
+**Deleting the DB**: `find . -name "*.db" -delete -o -name "*.db-shm" -delete -o -name "*.db-wal" -delete`
+
 ## packages/fields — Vite plugin & runtime (`@fields-cms/fields`)
 
 **`dist/`** — Compiled output (gitignored). Built automatically via the `prepare` hook on `npm install` / `npm link`, or manually with `npm run build -w packages/fields`. Never commit dist/.
 
 **`src/plugin.ts`** — Entry point. Exports `fieldsPlugin(options?: FieldsOptions): Plugin[]` — an array of two Vite plugins:
 
-1. `fields-virtual-config` — resolves `virtual:fields-config` to the serialized user config JSON. Handles HMR: reloads the config when `fields.config.ts` changes.
-2. `fields-api` — on `configureServer`: initialises DB + storage + user config, serves the pre-built admin SPA from `dist/admin/` at `/fields/*` (injects `window.__FIELDS_CONFIG__` into HTML), and dispatches all `/api/fields/*` requests.
+1. `fields-virtual-config` — resolves `virtual:fields-config` to the serialized user config JSON. Handles HMR: reloads config and re-runs `syncCollections()` when `fields.config.ts` changes.
+2. `fields-api` — on `configureServer`: finds the project root, initialises DB + storage + user config, calls `syncCollections()`, serves the pre-built admin SPA from `dist/admin/` at `/fields/*` (injects `window.__FIELDS_CONFIG__` into HTML), and dispatches all `/api/fields/*` requests.
+
+**Key functions in `src/plugin.ts`:**
+
+- `findProjectRoot(startDir)` — walks up from `server.config.root` looking for a `package.json` with `"workspaces"` (monorepo root) or any non-`fields-admin` package.json (standalone project). Used so `fields.db` is always created at the actual project root, not inside `packages/fields-admin/`.
+- `syncCollections()` — runs on every server start and HMR reload of `fields.config.ts`. Inserts collections from `userConfig` with `ON CONFLICT DO NOTHING`. For `type: 'page'` collections, also auto-creates a single draft entry (`slug: '/{name}'`) if none exists.
+- `getTokenFromCookie(req)` — reads `fields_token` from the cookie header. Used in the auth guard instead of `getBearer` from auth.ts (which has a more complex regex and `decodeURIComponent`).
 
 Request dispatch order in `dispatch()`:
 1. Security headers + CORS (every request)
@@ -47,14 +60,18 @@ Request dispatch order in `dispatch()`:
 3. Users-exist guard — `{ needsSetup: true }` (403) if `users` table is empty
 4. `POST /auth/login` — public, login rate limiter (5 attempts / 15 min, SQLite)
 5. General rate limiter — 300 req/min per IP, `_rate_limits` table (key prefix `auth:`)
-6. JWT verification — httpOnly cookie `fields_token`, checks `_token_revocations` for jti
+6. JWT verification — `getTokenFromCookie(req)`, checks `_token_revocations` for jti
 7. Route handlers
 
-**`src/types.ts`** — `FieldsConfig`, `FieldDef`, `FieldValues`, `CollectionSchema`, `FieldType`, `FieldsOptions`, `DatabaseAdapter`, `StorageAdapter`, `Migration`.
+**`src/types.ts`** — `CollectionSchema` has `name` (required), `label?`, `type?: 'page' | 'collection' | 'object'`, `fields` (required). `FieldsConfig`, `FieldDef`, `FieldValues`, `FieldType`, `FieldsOptions`, `DatabaseAdapter`, `StorageAdapter`, `Migration`.
 
-**`src/auth.ts`** — `signToken`, `verifyToken`, `getBearer` (reads httpOnly cookie). Tokens are 1-day JWTs with a `jti` UUID claim. In production, `FIELDS_JWT_SECRET` must be set or startup throws. Cookie is `HttpOnly; SameSite=Strict; Secure` in production.
+**`src/auth.ts`** — `signToken`, `verifyToken`, `getBearer` (reads httpOnly cookie). Tokens are 1-day JWTs with a `jti` UUID claim. `FIELDS_JWT_SECRET` check is in `configureServer()` (not module scope) so it doesn't crash during frontend builds. Cookie is `HttpOnly; SameSite=Strict; Secure` in production only.
 
-**`src/db.ts`** — Creates SQLite DB at `fields.db` (override via `FIELDS_DB_PATH`). Runs `createSchema` → `migrate` → `seedIfEmpty` on every startup. Internal tables: `_migrations`, `_rate_limits`, `_token_revocations`. No users seeded — setup wizard creates first admin.
+**`src/db.ts`** — `createDb(opts?: { root?: string })` creates SQLite DB at `{root}/fields.db` (override via `FIELDS_DB_PATH`). Runs `createSchema` → `migrate` → `seedIfEmpty` on every startup. `seedIfEmpty` is a no-op — the DB starts empty. Setup wizard creates the first user; `syncCollections()` populates collections. Internal tables: `_migrations`, `_rate_limits`, `_token_revocations`.
+
+**`src/handlers/setup.ts`** — `handleSetupCreate` reads `projectName`, `firstName`, `lastName`, `email`, `password` from the request body (all validated). After creating the user, writes all four values to the `settings` table and sets the JWT cookie — the user is automatically logged in after setup, no separate login needed.
+
+**`src/handlers/entries.ts`** — `toSlug(db, collectionName, title)` looks up the collection type: pages get `/{slug}` (top-level), collections get `/{collectionName}/{slug}`. Appends `-2`, `-3`, etc. on collision.
 
 **`src/utils/ip.ts`** — Single `getClientIp(req)` shared by plugin and auth handler. Uses `socket.remoteAddress`; reads rightmost `X-Forwarded-For` when `FIELDS_TRUST_PROXY=true`.
 
@@ -64,7 +81,7 @@ Request dispatch order in `dispatch()`:
 
 **`src/adapters/storage/`** — `local.ts` (LocalAdapter, default), `s3.ts`, `supabase.ts`, `vercel.ts`, `netlify.ts`, `firebase.ts`. All optional providers use dynamic `import()` so the package doesn't fail when the provider SDK isn't installed.
 
-**`bin/fields.js`** — CLI: `migrate`, `validate`, `add-user`, `remove-user` commands.
+**`bin/fields.js`** — CLI: `migrate`, `validate`, `add-user`, `remove-user` commands. `loadConfig()` uses Vite's `loadConfigFromFile()` to parse `fields.config.ts` (handles TypeScript natively, no extra tooling). `migrate` reads `col.label` and `col.type` from config when inserting collections, and auto-creates draft entries for page collections.
 
 ## packages/fields-admin — Vue 3 SPA
 
@@ -95,7 +112,7 @@ Key composables:
 - `src/components/sheet/` — wraps `UiSheet`, pulls state from own composable.
 - `UiModal` — `Teleport` + `Transition`. Props: `open`. Emits: `close`. Closes on backdrop mousedown.
 - `UiSheet` — `Teleport` + `Transition`. `anchor="nav"` slides from left (z-50, under SharedNav at z-60); `anchor="right"` (default) slides from right. Closes on outside mousedown/focusin or route change.
-- `UiButton variant` — `'default' | 'ghost' | 'outline' | 'danger'`.
+- `UiButton` — text is passed via the `text` prop, **not** slot content. `variant`: `'default' | 'ghost' | 'outline' | 'danger'`. Other props: `icon`, `size`, `tooltip`, `action`, `disabled`, `dim`, `block`.
 - Icons — Heroicons (`@heroicons/vue/24/outline`, `/20/solid`, `/16/solid`) for standard; custom SVG components in `src/assets/icons/` (`stroke="currentColor"`) for app-specific shapes.
 
 ## packages/create-fields-cms — init wizard
@@ -109,4 +126,4 @@ Key composables:
 | `FIELDS_JWT_SECRET` | **Yes in production** | random per-process | JWT signing key |
 | `FIELDS_TRUST_PROXY` | No | — | `true` → read rightmost X-Forwarded-For |
 | `FIELDS_ALLOWED_ORIGINS` | No | — | Comma-separated CORS origins |
-| `FIELDS_DB_PATH` | No | `./fields.db` | SQLite file path |
+| `FIELDS_DB_PATH` | No | `{projectRoot}/fields.db` | SQLite file path |
