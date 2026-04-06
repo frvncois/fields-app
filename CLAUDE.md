@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 fields-app/
   packages/
-    fields/           # npm package — Vite plugin, API server, DB/storage adapters
+    fields/           # npm package (@fields-cms/fields) — Vite plugin, API server, DB/storage adapters
     fields-admin/     # Vue 3 SPA — admin UI (builds into packages/fields/dist/admin/)
     create-fields-cms/ # npm init wizard — `npm create fields-cms`
   fields.config.ts    # User's collection schema (dev only, not shipped)
@@ -32,7 +32,7 @@ npm run type-check -w packages/fields
 
 No linting or test runner is configured.
 
-## packages/fields — Vite plugin & runtime
+## packages/fields — Vite plugin & runtime (`@fields-cms/fields`)
 
 **`dist/`** — Compiled output (gitignored). Built automatically via the `prepare` hook on `npm install` / `npm link`, or manually with `npm run build -w packages/fields`. Never commit dist/.
 

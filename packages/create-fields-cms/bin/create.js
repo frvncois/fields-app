@@ -56,7 +56,7 @@ function patchViteConfig() {
     const vitePath = join(cwd, 'vite.config.ts')
     if (!existsSync(vitePath)) {
         writeFileSync(vitePath, `import { defineConfig } from 'vite'
-import { fieldsPlugin } from 'fields'
+import { fieldsPlugin } from '@fields-cms/fields'
 
 export default defineConfig({
   plugins: [fieldsPlugin()],
@@ -65,10 +65,10 @@ export default defineConfig({
         return
     }
     let content = readFileSync(vitePath, 'utf8')
-    if (!content.includes("from 'fields'")) {
+    if (!content.includes("from '@fields-cms/fields'")) {
         content = content.replace(
             /^(import .+\n)/m,
-            `import { fieldsPlugin } from 'fields'\n$1`
+            `import { fieldsPlugin } from '@fields-cms/fields'\n$1`
         )
     }
     if (!content.includes('fieldsPlugin')) {
@@ -83,7 +83,7 @@ export default defineConfig({
 function writeFieldsConfig(projectName) {
     const configPath = join(cwd, 'fields.config.ts')
     if (existsSync(configPath)) return // don't overwrite existing config
-    writeFileSync(configPath, `import type { FieldsConfig } from 'fields'
+    writeFileSync(configPath, `import type { FieldsConfig } from '@fields-cms/fields'
 
 const config: FieldsConfig = {
     collections: [
@@ -275,10 +275,10 @@ s.stop('npm scripts added')
 
 s.start('Installing fields')
 try {
-    execSync('npm install --save-dev vite fields', { cwd, stdio: 'pipe' })
+    execSync('npm install --save-dev vite @fields-cms/fields', { cwd, stdio: 'pipe' })
     s.stop('fields installed')
 } catch {
-    s.stop('fields install failed — run: npm install --save-dev vite fields')
+    s.stop('fields install failed — run: npm install --save-dev vite @fields-cms/fields')
 }
 
 s.start('Running initial migration')
@@ -293,7 +293,7 @@ try {
 s.start('Creating admin account')
 const adminResult = spawnSync(
     'node',
-    ['node_modules/fields/bin/fields.js', 'add-user', '--email', adminEmail, '--password', adminPw],
+    ['node_modules/@fields-cms/fields/bin/fields.js', 'add-user', '--email', adminEmail, '--password', adminPw],
     { cwd, stdio: 'pipe' }
 )
 if (adminResult.status === 0) {

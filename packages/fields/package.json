@@ -1,5 +1,5 @@
 {
-  "name": "fields",
+  "name": "@fields-cms/fields",
   "version": "0.0.0",
   "type": "module",
   "description": "Code-first headless CMS — Vite plugin with admin UI, API, and database",
