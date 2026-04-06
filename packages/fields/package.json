@@ -21,6 +21,7 @@
     "bin/"
   ],
   "scripts": {
+    "prepare": "npm run build",
     "build": "tsup",
     "type-check": "tsc --project tsconfig.json --noEmit"
   },

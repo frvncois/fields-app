@@ -17,7 +17,7 @@ fields-app/
 ## Commands
 
 ```bash
-npm install                          # Install all workspace dependencies
+npm install                          # Install all workspace dependencies (triggers prepare → tsup in packages/fields)
 npm run dev                          # Start fields-admin dev server (Vite HMR)
 npm run build                        # Build fields-admin then fields package
 npm run type-check                   # vue-tsc (admin) + tsc (fields runtime)
@@ -33,6 +33,8 @@ npm run type-check -w packages/fields
 No linting or test runner is configured.
 
 ## packages/fields — Vite plugin & runtime
+
+**`dist/`** — Compiled output (gitignored). Built automatically via the `prepare` hook on `npm install` / `npm link`, or manually with `npm run build -w packages/fields`. Never commit dist/.
 
 **`src/plugin.ts`** — Entry point. Exports `fieldsPlugin(options?: FieldsOptions): Plugin[]` — an array of two Vite plugins:
 
