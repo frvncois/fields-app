@@ -27,7 +27,7 @@ export type FieldsConfig = {
 
 export type Migration = {
     version: number
-    up: (db: DatabaseAdapter) => void
+    up: (db: DatabaseAdapter) => void | Promise<void>
 }
 
 export interface DatabaseAdapter {

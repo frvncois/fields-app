@@ -31,9 +31,19 @@ export class SQLiteAdapter implements DatabaseAdapter {
         )
         for (const m of migrations) {
             if (applied.has(m.version)) continue
-            m.up(this)
-            this.run('INSERT INTO _migrations (version) VALUES (?)', [m.version])
-            console.log(`  ✦ Migration ${m.version} applied`)
+            // [M1] Wrap each migration in a transaction so that a mid-migration failure
+            // rolls back all DDL. Without this, partial DDL commits but no version row is
+            // written, causing every subsequent startup to retry and fail permanently.
+            this.raw.exec('BEGIN')
+            try {
+                m.up(this)
+                this.run('INSERT INTO _migrations (version) VALUES (?)', [m.version])
+                this.raw.exec('COMMIT')
+                console.log(`  ✦ Migration ${m.version} applied`)
+            } catch (err) {
+                this.raw.exec('ROLLBACK')
+                throw err
+            }
         }
     }
 }

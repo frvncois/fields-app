@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import type { Req, Res, Db } from './types'
 import { json, readJson } from './types'
 
@@ -25,7 +26,7 @@ function currentLocale(db: Db): string {
 }
 
 function randomKey(): string {
-    return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+    return randomBytes(8).toString('hex')
 }
 
 function toSlug(db: Db, collectionName: string, title: string): string {
@@ -53,19 +54,40 @@ export async function handleEntries(req: Req, res: Res, db: Db): Promise<void> {
         )
         if (!col) { json(res, { error: 'Bad request' }, 400); return }
 
-        const slug = toSlug(db, col.name, String(body.title))
+        const title = typeof body.title === 'string' ? body.title.trim() : ''
+        if (!title || title.length > 500) {
+            json(res, { error: 'Title must be 1–500 characters' }, 400)
+            return
+        }
+
         const status = body.status === 'published' ? 'published' : 'draft'
         const data = JSON.stringify(body.data ?? {})
         const locale = currentLocale(db)
         const translationKey = randomKey()
 
-        const { lastInsertRowid } = db.run(
-            'INSERT INTO entries (collection_name, title, slug, status, data, locale, translation_key) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [col.name, String(body.title), slug, status, data, locale, translationKey]
-        )
+        // [M4] The slug check and INSERT are not atomic: two concurrent requests
+        // with the same title both see the slug as free and one throws a UNIQUE
+        // constraint violation → 500. Catch the violation and retry with a new slug.
+        let insertedRow
+        let attempts = 0
+        while (!insertedRow && attempts++ < 10) {
+            const slug = toSlug(db, col.name, title)
+            try {
+                const { lastInsertRowid } = db.run(
+                    'INSERT INTO entries (collection_name, title, slug, status, data, locale, translation_key) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [col.name, title, slug, status, data, locale, translationKey]
+                )
+                insertedRow = db.get(`${ENTRY_SELECT} WHERE e.id = ?`, [Number(lastInsertRowid)])
+            } catch (err: unknown) {
+                if (!(err instanceof Error) || !err.message.includes('UNIQUE')) throw err
+            }
+        }
+        if (!insertedRow) {
+            json(res, { error: 'Could not generate unique slug' }, 409)
+            return
+        }
 
-        const row = db.get(`${ENTRY_SELECT} WHERE e.id = ?`, [Number(lastInsertRowid)])
-        json(res, row, 201)
+        json(res, insertedRow, 201)
         return
     }
 
@@ -77,11 +99,16 @@ export async function handleEntries(req: Req, res: Res, db: Db): Promise<void> {
 export async function handleEntry(req: Req, res: Res, db: Db, id: number): Promise<void> {
     if (req.method === 'PUT') {
         const body = await readJson(req)
+        const title = typeof body.title === 'string' ? body.title.trim() : ''
+        if (!title || title.length > 500) {
+            json(res, { error: 'Title must be 1–500 characters' }, 400)
+            return
+        }
         const status = body.status === 'published' ? 'published' : 'draft'
         const data = JSON.stringify(body.data ?? {})
         db.run(
             `UPDATE entries SET title = ?, status = ?, data = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`,
-            [String(body.title), status, data, id]
+            [title, status, data, id]
         )
         const row = db.get(`${ENTRY_SELECT} WHERE e.id = ?`, [id])
         json(res, row)
@@ -104,6 +131,12 @@ export async function handleEntry(req: Req, res: Res, db: Db, id: number): Promi
         db.run('DELETE FROM entries WHERE id = ?', [id])
         res.statusCode = 204
         res.end()
+        return
+    }
+
+    if (req.method !== 'GET') {
+        res.setHeader('Allow', 'GET, PUT, PATCH, DELETE')
+        json(res, { error: 'Method not allowed' }, 405)
         return
     }
 

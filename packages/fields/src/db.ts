@@ -23,7 +23,6 @@ export function createDb(opts?: { root?: string }): DatabaseAdapter {
 
     createSchema(db)
     db.migrate(MIGRATIONS)
-    seedIfEmpty(db)
 
     return db
 }
@@ -149,10 +148,3 @@ const MIGRATIONS: Migration[] = [
     },
 ]
 
-// ─── Seed data ────────────────────────────────────────────────────────────────
-
-function seedIfEmpty(_db: DatabaseAdapter): void {
-    // Database starts completely empty.
-    // Setup wizard creates the first user.
-    // fields.config.ts defines collections.
-}

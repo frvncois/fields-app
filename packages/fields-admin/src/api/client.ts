@@ -15,9 +15,9 @@ export function hasAuthHint(): boolean {
 export async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
     const res = await fetch(input, { ...init, credentials: 'include' })
 
-    if (res.status === 401 && !window.location.pathname.startsWith('/login')) {
+    if (res.status === 401 && !window.location.pathname.startsWith('/fields/login')) {
         clearAuthHint()
-        window.location.href = '/login'
+        window.location.href = '/fields/login'
     }
 
     return res

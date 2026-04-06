@@ -1,11 +1,12 @@
 import type { Plugin } from 'vite'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readFileSync, existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createDb } from './db'
-import { verifyToken } from './auth'
+import { verifyToken, getTokenFromCookie } from './auth'
 import { getClientIp } from './utils/ip'
+import { validateConfig } from './utils/validateConfig'
 import { handleLogin, handleLogout, handleChangePassword } from './handlers/auth'
 import { handleSetupCheck, handleSetupCreate } from './handlers/setup'
 import { handleEntries, handleEntry, handleCollectionEntries, handleTranslateEntry } from './handlers/entries'
@@ -16,7 +17,7 @@ import {
     handleMediaUpload, handleMediaList, handleMediaItem,
     handleFolders, handleFolder,
 } from './handlers/media'
-import { json } from './handlers/types'
+import { json, parseId } from './handlers/types'
 import { LocalAdapter } from './adapters/storage/local'
 import type { FieldsConfig, FieldsOptions, DatabaseAdapter, StorageAdapter } from './types'
 
@@ -27,22 +28,19 @@ function findProjectRoot(startDir: string): string {
     while (true) {
         const pkgPath = join(dir, 'package.json')
         if (existsSync(pkgPath)) {
-            const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { workspaces?: unknown; name?: string }
-            if (pkg.workspaces) return dir
-            if (pkg.name !== 'fields-admin') return dir
+            // [L2] Guard against malformed package.json (e.g. truncated during npm install)
+            try {
+                const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { workspaces?: unknown; name?: string }
+                if (pkg.workspaces) return dir
+                if (pkg.name !== 'fields-admin') return dir
+            } catch {
+                // skip malformed package.json and keep walking up
+            }
         }
         const parent = join(dir, '..')
         if (parent === dir) return startDir
         dir = parent
     }
-}
-
-// ─── Cookie auth ──────────────────────────────────────────────────────────────
-
-function getTokenFromCookie(req: IncomingMessage): string | null {
-    const cookies = req.headers.cookie ?? ''
-    const match = cookies.match(/fields_token=([^;]+)/)
-    return match ? match[1] : null
 }
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
@@ -120,11 +118,6 @@ function unauthorized(res: ServerResponse): void {
     json(res, { error: 'Unauthorized' }, 401)
 }
 
-function parseId(s: string): number | null {
-    const n = Number(s)
-    return Number.isInteger(n) && n > 0 ? n : null
-}
-
 // ─── Load user config from fields.config.ts ──────────────────────────────────
 
 async function loadUserConfig(projectRoot: string, configPath: string): Promise<FieldsConfig> {
@@ -164,6 +157,14 @@ function serveAdmin(
         const filePath = join(adminDir, candidate)
         if (!existsSync(filePath)) continue
 
+        const resolved = resolve(filePath)
+        const adminResolved = resolve(adminDir)
+        if (!resolved.startsWith(adminResolved + sep)) {
+            res.statusCode = 404
+            res.end()
+            return true
+        }
+
         try {
             let content = readFileSync(filePath)
             const ext = candidate.split('.').pop() ?? ''
@@ -179,8 +180,11 @@ function serveAdmin(
             const contentType = mimeTypes[ext] ?? 'application/octet-stream'
 
             // Inject config into HTML before </head>
+            // [C1] Escape </script> sequences so a collection label cannot break out
+            //      of the script block and execute arbitrary code.
             if (ext === 'html') {
-                const injection = `<script>window.__FIELDS_CONFIG__=${JSON.stringify(config)}</script>`
+                const safeJson = JSON.stringify(config).replace(/<\/script>/gi, '<\\/script>')
+                const injection = `<script>window.__FIELDS_CONFIG__=${safeJson}</script>`
                 const html = content.toString('utf8').replace('</head>', `${injection}</head>`)
                 res.statusCode = 200
                 res.setHeader('Content-Type', 'text/html; charset=utf-8')
@@ -232,12 +236,6 @@ async function dispatch(
     if (path === '/setup' && req.method === 'GET') return handleSetupCheck(req, res, db)
     if (path === '/setup' && req.method === 'POST') return handleSetupCreate(req, res, db)
 
-    // Expose user config to the admin SPA
-    if (path === '/config' && req.method === 'GET') {
-        json(res, config)
-        return
-    }
-
     // [C3] No users → redirect to setup
     const userCount = db.get<{ count: number }>('SELECT COUNT(*) as count FROM users')
     if (!userCount || userCount.count === 0) {
@@ -263,6 +261,12 @@ async function dispatch(
     if (revoked) return unauthorized(res)
 
     const userId = payload.sub
+
+    // Expose user config to the admin SPA (requires auth)
+    if (path === '/config' && req.method === 'GET') {
+        json(res, config)
+        return
+    }
 
     if (path === '/auth/logout' && req.method === 'POST') return handleLogout(req, res, db)
     if (path === '/auth/password' && req.method === 'PATCH') return handleChangePassword(req, res, db, userId)
@@ -335,7 +339,10 @@ export function fieldsPlugin(options: FieldsOptions = {}): Plugin[] {
     async function syncCollections() {
         for (const col of userConfig.collections) {
             db.run(
-                'INSERT INTO collections (name, label, type) VALUES (?, ?, ?) ON CONFLICT(name) DO NOTHING',
+                `INSERT INTO collections (name, label, type) VALUES (?, ?, ?)
+                 ON CONFLICT(name) DO UPDATE SET
+                   label = excluded.label,
+                   type  = excluded.type`,
                 [col.name, col.label ?? col.name, col.type ?? 'collection']
             )
             if (col.type === 'page') {
@@ -363,6 +370,9 @@ export function fieldsPlugin(options: FieldsOptions = {}): Plugin[] {
         async handleHotUpdate({ file }) {
             if (file.endsWith(configFile)) {
                 userConfig = await loadUserConfig(projectRoot, configFile)
+                try { validateConfig(userConfig) } catch (err: unknown) {
+                    console.warn('[fields] Config warning:', (err as Error).message)
+                }
                 await syncCollections()
             }
         },
@@ -381,10 +391,11 @@ export function fieldsPlugin(options: FieldsOptions = {}): Plugin[] {
             db = options.db ?? createDb({ root: projectRoot })
             storage = options.storage ?? new LocalAdapter(projectRoot)
             userConfig = await loadUserConfig(projectRoot, configFile)
+            try { validateConfig(userConfig) } catch (err: unknown) {
+                console.warn('[fields] Config warning:', (err as Error).message)
+            }
             console.log('  ✦ Syncing collections from fields.config.ts...')
             await syncCollections()
-            const cols = db.query<{ name: string }>('SELECT name FROM collections')
-            console.log('  ✦ Collections in DB:', cols.map(c => c.name))
 
             console.log('  ✦ Fields API ready  →  /api/fields')
             console.log('  ✦ Fields admin UI   →  /fields')

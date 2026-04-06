@@ -38,6 +38,10 @@ __screenshots__/
 # Vite
 *.timestamp-*-*.mjs
 
+# Environment variables
+.env
+.env.local
+
 # Database
 fields.db
 fields.db-shm

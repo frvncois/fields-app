@@ -43,6 +43,17 @@ function detectFramework() {
     return 'vite'
 }
 
+// [M2] Quote .env values so that passwords or tokens containing newlines,
+// backslashes, or double-quotes don't corrupt the file.
+function escapeEnvValue(v) {
+    const escaped = String(v)
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+    return `"${escaped}"`
+}
+
 function appendToGitignore(lines) {
     const gitignorePath = join(cwd, '.gitignore')
     const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, 'utf8') : ''
@@ -52,8 +63,18 @@ function appendToGitignore(lines) {
     }
 }
 
+// [M5] Find the existing vite config regardless of extension so we don't create
+// a duplicate vite.config.ts alongside an existing vite.config.js/.mjs/.mts.
+function findViteConfig() {
+    for (const name of ['vite.config.ts', 'vite.config.mts', 'vite.config.js', 'vite.config.mjs']) {
+        const p = join(cwd, name)
+        if (existsSync(p)) return p
+    }
+    return join(cwd, 'vite.config.ts') // default for new projects
+}
+
 function patchViteConfig() {
-    const vitePath = join(cwd, 'vite.config.ts')
+    const vitePath = findViteConfig()
     if (!existsSync(vitePath)) {
         writeFileSync(vitePath, `import { defineConfig } from 'vite'
 import { fieldsPlugin } from '@fields-cms/fields'
@@ -108,7 +129,7 @@ function writeEnvFile(entries) {
     const existing = existsSync(envPath) ? readFileSync(envPath, 'utf8') : ''
     const lines = Object.entries(entries)
         .filter(([k]) => !existing.includes(k))
-        .map(([k, v]) => `${k}=${v}`)
+        .map(([k, v]) => `${k}=${escapeEnvValue(v)}`)
     if (lines.length > 0) {
         appendFileSync(envPath, '\n# Fields CMS\n' + lines.join('\n') + '\n')
     }

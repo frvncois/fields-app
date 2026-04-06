@@ -45,10 +45,9 @@ export class PgAdapter implements DatabaseAdapter {
     }
 
     async runAsync(sql: string, params: unknown[] = []): Promise<{ lastInsertRowid: number | bigint }> {
-        const pgSql = sql.replace(/\?/g, (_, i) => `$${++i}`)
         let idx = 0
-        const numbered = sql.replace(/\?/g, () => `$${++idx}`)
-        const result = await this.client.query(`${numbered} RETURNING id`, params)
+        const pgSql = sql.replace(/\?/g, () => `$${++idx}`)
+        const result = await this.client.query(`${pgSql} RETURNING id`, params)
         const id = result.rows[0]?.id ?? 0
         return { lastInsertRowid: Number(id) }
     }
@@ -77,7 +76,7 @@ export class PgAdapter implements DatabaseAdapter {
         const applied = new Set(rows.map(r => r.version))
         for (const m of migrations) {
             if (applied.has(m.version)) continue
-            m.up(this)
+            await m.up(this)
             await this.runAsync('INSERT INTO _migrations (version) VALUES ($1)', [m.version])
             console.log(`  ✦ Migration ${m.version} applied`)
         }

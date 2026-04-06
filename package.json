@@ -10,7 +10,9 @@
     "build": "npm run build --workspace=packages/fields-admin && npm run build --workspace=packages/fields",
     "type-check": "npm run type-check --workspace=packages/fields-admin && npm run type-check --workspace=packages/fields",
     "fields:migrate": "node packages/fields/bin/fields.js migrate",
-    "fields:add-user": "node packages/fields/bin/fields.js add-user"
+    "fields:validate": "node packages/fields/bin/fields.js validate",
+    "fields:add-user": "node packages/fields/bin/fields.js add-user",
+    "fields:remove-user": "node packages/fields/bin/fields.js remove-user"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
@@ -326,7 +328,7 @@
     "typescript": "^6.0.2",
     "uc.micro": "^2.1.0",
     "ufo": "^1.6.3",
-    "undici": "^5.29.0",
+    "undici": ">=7.0.0",
     "undici-types": "^7.16.0",
     "unplugin": "^3.0.0",
     "unplugin-utils": "^0.3.1",

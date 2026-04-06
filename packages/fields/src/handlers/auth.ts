@@ -1,8 +1,12 @@
 import type { Req, Res, Db } from './types'
 import { json, readJson } from './types'
 import { compareSync, hashSync } from 'bcryptjs'
-import { signToken, verifyToken, tokenCookieHeader, clearCookieHeader, getBearer } from '../auth'
+import { signToken, verifyToken, tokenCookieHeader, clearCookieHeader, getTokenFromCookie } from '../auth'
 import { getClientIp } from '../utils/ip'
+
+// [H1] Dummy hash used when the email is not found so that bcrypt always runs,
+// preventing a timing oracle that would otherwise reveal registered accounts.
+const DUMMY_HASH = '$2a$12$invalidhashfortimingequalizationxxxxxxxxxxxxxxxxxxxxxxxx'
 
 // ─── Rate limiting (login endpoint) — persisted to SQLite ────────────────────
 
@@ -37,6 +41,13 @@ export async function handleLogin(req: Req, res: Res, db: Db): Promise<void> {
     const ip = getClientIp(req)
 
     if (!checkLoginRateLimit(ip, db)) {
+        const limitRow = db.get<{ reset_at: string }>(
+            'SELECT reset_at FROM _rate_limits WHERE ip = ?', [ip]
+        )
+        const retryAfter = limitRow
+            ? Math.ceil((Number(limitRow.reset_at) - Date.now()) / 1000)
+            : 900
+        res.setHeader('Retry-After', String(retryAfter))
         json(res, { error: 'Too many attempts. Try again later.' }, 429)
         return
     }
@@ -46,7 +57,11 @@ export async function handleLogin(req: Req, res: Res, db: Db): Promise<void> {
         'SELECT id, password FROM users WHERE email = ?', [String(body.email)]
     )
 
-    if (!user || !compareSync(String(body.password), user.password)) {
+    // [H1] Always run bcrypt regardless of whether the user exists.
+    // Without this, the short-circuit on !user returns in microseconds while
+    // a wrong-password attempt takes ~200ms, revealing which emails are registered.
+    const passwordMatch = compareSync(String(body.password), user?.password ?? DUMMY_HASH)
+    if (!user || !passwordMatch) {
         json(res, { error: 'Invalid credentials' }, 401)
         return
     }
@@ -58,7 +73,7 @@ export async function handleLogin(req: Req, res: Res, db: Db): Promise<void> {
 }
 
 export async function handleLogout(req: Req, res: Res, db: Db): Promise<void> {
-    const token = getBearer(req)
+    const token = getTokenFromCookie(req)
     if (token) {
         const payload = verifyToken(token)
         if (payload) {
@@ -73,6 +88,8 @@ export async function handleLogout(req: Req, res: Res, db: Db): Promise<void> {
 }
 
 export async function handleChangePassword(req: Req, res: Res, db: Db, userId: number): Promise<void> {
+    // [H2] Read the token before consuming the body so we can revoke it after the update.
+    const token = getTokenFromCookie(req)
     const body = await readJson(req)
     if (!body.password || typeof body.password !== 'string') {
         json(res, { error: 'Missing password' }, 400)
@@ -83,5 +100,18 @@ export async function handleChangePassword(req: Req, res: Res, db: Db, userId: n
         return
     }
     db.run('UPDATE users SET password = ? WHERE id = ?', [hashSync(body.password, 12), userId])
+
+    // [H2] Revoke the current session token so an attacker who obtained it before
+    // the password change cannot continue using it for the remaining 24-hour TTL.
+    if (token) {
+        const payload = verifyToken(token)
+        if (payload?.jti) {
+            db.run(
+                "INSERT OR IGNORE INTO _token_revocations (jti, revoked_at) VALUES (?, datetime('now'))",
+                [payload.jti]
+            )
+        }
+    }
+    res.setHeader('Set-Cookie', clearCookieHeader())
     json(res, { ok: true })
 }

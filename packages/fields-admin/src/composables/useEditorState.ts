@@ -8,6 +8,10 @@ const entryId = ref<number | null>(null)
 const fieldValues = ref<FieldValues>({})
 const published = ref(false)
 
+// [M6] Re-entrancy guard: prevents a double-click (or two rapid programmatic calls)
+// from both seeing entryId === null and each calling createEntry, producing duplicates.
+let saving = false
+
 export function useEditorState() {
     function setEntry(id: number) {
         entryId.value = id
@@ -26,19 +30,24 @@ export function useEditorState() {
     }
 
     async function save(): Promise<number | null> {
+        if (saving) return entryId.value
         if (!title.value.trim()) return null
+        saving = true
+        try {
+            const status = published.value ? 'published' : 'draft'
+            const body = { title: title.value, status, data: fieldValues.value }
 
-        const status = published.value ? 'published' : 'draft'
-        const body = { title: title.value, status, data: fieldValues.value }
+            if (entryId.value) {
+                await updateEntry(entryId.value, body)
+                return entryId.value
+            }
 
-        if (entryId.value) {
-            await updateEntry(entryId.value, body)
-            return entryId.value
+            if (!collectionId.value) return null
+            const data = await createEntry({ collectionId: collectionId.value, ...body })
+            return data.id ?? null
+        } finally {
+            saving = false
         }
-
-        if (!collectionId.value) return null
-        const data = await createEntry({ collectionId: collectionId.value, ...body })
-        return data.id ?? null
     }
 
     const ogImage = computed<string>({

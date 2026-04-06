@@ -3,7 +3,21 @@ import { join } from 'node:path'
 import Busboy from 'busboy'
 import { imageSizeFromFile } from 'image-size/fromFile'
 import type { Req, Res, Db, Storage } from './types'
-import { json, readJson } from './types'
+import { json, parseId, readJson } from './types'
+
+const MAGIC_BYTES: Record<string, number[][]> = {
+    'image/jpeg': [[0xFF, 0xD8, 0xFF]],
+    'image/png':  [[0x89, 0x50, 0x4E, 0x47]],
+    'image/webp': [[0x52, 0x49, 0x46, 0x46]],
+    'application/pdf': [[0x25, 0x50, 0x44, 0x46]],
+}
+
+function checkMagicBytes(buffer: Buffer, mimeType: string): boolean {
+    const signatures = MAGIC_BYTES[mimeType]
+    if (!signatures) return true
+    const head = [...buffer.slice(0, 8)]
+    return signatures.some(sig => sig.every((b, i) => head[i] === b))
+}
 
 const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.pdf', '.mp4', '.wav', '.mov', '.webm', '.mp3', '.docx'])
 const ALLOWED_MIME_TYPES = new Set([
@@ -65,6 +79,9 @@ export async function handleMediaUpload(req: Req, res: Res, db: Db, storage: Sto
         savedFilename = `${base}${ext}`
         savedMime = mime
 
+        // NOTE(streaming): The file is fully buffered in heap before upload.
+        // For large files (up to 1 GB) this is an OOM risk.
+        // Future: stream directly to the storage adapter without buffering.
         bufferPromise = new Promise<void>((resolve, reject) => {
             const chunks: Buffer[] = []
             let size = 0
@@ -104,10 +121,16 @@ export async function handleMediaUpload(req: Req, res: Res, db: Db, storage: Sto
         return
     }
 
+    // Validate magic bytes before uploading
+    if (!checkMagicBytes(fileBuffer, savedMime)) {
+        json(res, { error: 'File content does not match declared type' }, 400)
+        return
+    }
+
     // Upload via storage adapter
     const url = await storage.upload(fileBuffer, savedFilename, savedMime)
 
-    // [M3] Derive metadata server-side
+    // Derive metadata server-side
     let weight = formatWeight(fileBuffer.length)
     let dimensions = '—'
     if (savedMime.startsWith('image/')) {
@@ -122,7 +145,12 @@ export async function handleMediaUpload(req: Req, res: Res, db: Db, storage: Sto
     }
     const mediaType = getServerMediaType(savedMime)
 
-    const folderId = fields.folderId ? Number(fields.folderId) : null
+    const folderId = fields.folderId != null
+        ? parseId(String(fields.folderId))
+        : null
+    if (fields.folderId != null && folderId === null) {
+        json(res, { error: 'Invalid folderId' }, 400); return
+    }
     const { lastInsertRowid } = db.run(
         'INSERT INTO media (folder_id, title, url, weight, dimensions, type) VALUES (?, ?, ?, ?, ?, ?)',
         [folderId, savedFilename, url, weight, dimensions, mediaType]

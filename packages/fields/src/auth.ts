@@ -24,11 +24,12 @@ export function tokenCookieHeader(token: string): string {
 }
 
 export function clearCookieHeader(): string {
-    return 'fields_token=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'
+    const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
+    return `fields_token=; HttpOnly; SameSite=Strict; Path=/${secure}; Max-Age=0`
 }
 
-export function getBearer(req: IncomingMessage): string | null {
-    const cookie = req.headers['cookie'] ?? ''
-    const match = cookie.match(/(?:^|;\s*)fields_token=([^;]+)/)
-    return match ? decodeURIComponent(match[1]) : null
+export function getTokenFromCookie(req: IncomingMessage): string | null {
+    const cookies = req.headers.cookie ?? ''
+    const match = cookies.match(/fields_token=([^;]+)/)
+    return match ? match[1] : null
 }

@@ -1,6 +1,6 @@
 import { createWriteStream, existsSync, unlinkSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join, resolve, sep } from 'node:path'
 import type { StorageAdapter } from '../../types'
 
 export class LocalAdapter implements StorageAdapter {
@@ -34,9 +34,14 @@ export class LocalAdapter implements StorageAdapter {
         return `/uploads/${safeName}`
     }
 
-    async delete(path: string): Promise<void> {
-        const filePath = join(process.cwd(), 'public', path)
-        try { unlinkSync(filePath) } catch { /* already gone */ }
+    async delete(url: string): Promise<void> {
+        const filename = basename(url)
+        const filePath = join(this.uploadsDir, filename)
+        const safe = resolve(filePath)
+        if (!safe.startsWith(resolve(this.uploadsDir) + sep)) {
+            throw new Error('Invalid path')
+        }
+        try { unlinkSync(safe) } catch { /* already gone */ }
     }
 
     getUrl(path: string): string {

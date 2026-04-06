@@ -5,7 +5,7 @@ export function getClientIp(req: IncomingMessage): string {
         const forwarded = req.headers['x-forwarded-for'] as string | undefined
         if (forwarded) {
             const parts = forwarded.split(',').map(s => s.trim())
-            return parts[parts.length - 1]
+            return parts[0].trim()
         }
     }
     return req.socket.remoteAddress ?? 'unknown'

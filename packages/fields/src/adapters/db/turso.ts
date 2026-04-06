@@ -75,7 +75,7 @@ export class TursoAdapter implements DatabaseAdapter {
         const applied = new Set(rows.map(r => r.version))
         for (const m of migrations) {
             if (applied.has(m.version)) continue
-            m.up(this)
+            await m.up(this)  // [H3] must await — migration DDL is async for Turso
             await this.runAsync('INSERT INTO _migrations (version) VALUES (?)', [m.version])
             console.log(`  ✦ Migration ${m.version} applied`)
         }

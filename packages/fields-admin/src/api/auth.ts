@@ -13,7 +13,7 @@ export async function login(email: string, password: string): Promise<boolean> {
 
 export async function logout(): Promise<void> {
     await apiFetch('/api/fields/auth/logout', { method: 'POST' })
-    window.location.href = '/login'
+    window.location.href = '/fields/login'
 }
 
 export async function changePassword(password: string): Promise<boolean> {

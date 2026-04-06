@@ -40,7 +40,11 @@ async function loadConfig() {
         cwd
     )
     if (!result) fail('Could not load fields.config.ts')
-    return result.config
+    const config = result.config
+    if (!Array.isArray(config.collections)) {
+        fail('Invalid fields.config.ts — missing collections array')
+    }
+    return config
 }
 
 async function loadDb() {
