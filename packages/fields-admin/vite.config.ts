@@ -40,5 +40,13 @@ export default defineConfig({
     build: {
         outDir: '../fields/dist/admin',
         emptyOutDir: true,
+        rollupOptions: {
+            output: {
+                manualChunks(id) {
+                    if (id.includes('@tiptap') || id.includes('prosemirror')) return 'vendor-tiptap'
+                    if (id.includes('node_modules/vue') || id.includes('node_modules/vue-router')) return 'vendor-vue'
+                },
+            },
+        },
     },
 })

@@ -159,10 +159,13 @@ const visibleMedia = computed(() => {
     return result
 })
 
+const hasActiveFilters = computed(() => !!(values.search || values.type))
+const isEmpty = computed(() => visibleFolders.value.length === 0 && visibleMedia.value.length === 0)
+
 async function loadAll() {
-    const [f, m] = await Promise.all([getFolders(), getMedia()])
+    const [f, m] = await Promise.all([getFolders(), getMedia({ limit: 1000 })])
     folders.value = f
-    mediaItems.value = m
+    mediaItems.value = m.items
 }
 
 onMounted(loadAll)
@@ -263,7 +266,21 @@ async function moveMedia(mediaId: number, folderId: number | null) {
                 <span>{{ currentFolder.name }}</span>
             </div>
 
-            <div class="grid">
+            <div v-if="isEmpty && !hasActiveFilters" class="empty">
+                <PhotoIcon class="empty-icon" />
+                <p class="empty-title">No media yet</p>
+                <p class="empty-text">Upload images, videos, and documents to use across your content.</p>
+                <div class="empty-actions">
+                    <UiButton text="Create folder" variant="outline" size="sm" :icon="FolderPlusIcon" @click="createFolder" />
+                    <UiButton text="Add media" size="sm" :icon="ArrowUpTrayIcon" @click="fileInputEl?.click()" />
+                </div>
+            </div>
+            <div v-else-if="isEmpty" class="empty">
+                <PhotoIcon class="empty-icon" />
+                <p class="empty-title">No results</p>
+                <p class="empty-text">Try adjusting your search or filters.</p>
+            </div>
+            <div v-else class="grid">
                 <UiFolderCard
                     v-for="folder in visibleFolders"
                     :key="folder.id"
@@ -340,6 +357,41 @@ async function moveMedia(mediaId: number, folderId: number | null) {
         opacity: 0.6;
 
         &:hover { opacity: 1; text-decoration: underline; }
+    }
+}
+
+.empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    padding: var(--space-2xl) var(--space-lg);
+    text-align: center;
+
+    .empty-icon {
+        height: 2rem;
+        width: 2rem;
+        opacity: 0.25;
+    }
+
+    .empty-title {
+        font-size: var(--size-sm);
+        font-weight: 500;
+        margin: 0;
+    }
+
+    .empty-text {
+        font-size: var(--size-xs);
+        opacity: 0.5;
+        margin: 0;
+        max-width: 280px;
+    }
+
+    .empty-actions {
+        display: flex;
+        gap: var(--gap-sm);
+        margin-top: var(--space-xs);
     }
 }
 

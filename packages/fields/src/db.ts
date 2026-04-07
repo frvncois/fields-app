@@ -92,9 +92,37 @@ function createSchema(db: DatabaseAdapter): void {
         );
 
         CREATE TABLE IF NOT EXISTS users (
-            id       INTEGER PRIMARY KEY AUTOINCREMENT,
-            email    TEXT NOT NULL UNIQUE,
-            password TEXT NOT NULL
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            email      TEXT NOT NULL UNIQUE,
+            password   TEXT NOT NULL,
+            role       TEXT NOT NULL DEFAULT 'editor',
+            first_name TEXT,
+            last_name  TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS user_permissions (
+            user_id         INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            can_create      INTEGER NOT NULL DEFAULT 0,
+            can_edit        INTEGER NOT NULL DEFAULT 0,
+            can_delete      INTEGER NOT NULL DEFAULT 0,
+            can_publish     INTEGER NOT NULL DEFAULT 0,
+            can_media       INTEGER NOT NULL DEFAULT 0,
+            can_settings    INTEGER NOT NULL DEFAULT 0,
+            pages_all       INTEGER NOT NULL DEFAULT 0,
+            collections_all INTEGER NOT NULL DEFAULT 0,
+            objects_all     INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS user_collection_grants (
+            user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+            PRIMARY KEY (user_id, collection_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS user_object_grants (
+            user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+            PRIMARY KEY (user_id, collection_id)
         );
     `)
 }
@@ -144,6 +172,51 @@ const MIGRATIONS: Migration[] = [
                     revoked_at TEXT NOT NULL DEFAULT (datetime('now'))
                 );
             `)
+        },
+    },
+    {
+        version: 6,
+        up(db) {
+            // Add role column; existing users become admins to preserve their access
+            try { db.exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'editor'`) }
+            catch { /* already exists on fresh databases */ }
+            db.run(`UPDATE users SET role = 'admin' WHERE role = 'editor'`)
+
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS user_permissions (
+                    user_id         INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                    can_create      INTEGER NOT NULL DEFAULT 0,
+                    can_edit        INTEGER NOT NULL DEFAULT 0,
+                    can_delete      INTEGER NOT NULL DEFAULT 0,
+                    can_publish     INTEGER NOT NULL DEFAULT 0,
+                    can_media       INTEGER NOT NULL DEFAULT 0,
+                    can_settings    INTEGER NOT NULL DEFAULT 0,
+                    pages_all       INTEGER NOT NULL DEFAULT 0,
+                    collections_all INTEGER NOT NULL DEFAULT 0,
+                    objects_all     INTEGER NOT NULL DEFAULT 0
+                );
+
+                CREATE TABLE IF NOT EXISTS user_collection_grants (
+                    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+                    PRIMARY KEY (user_id, collection_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS user_object_grants (
+                    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+                    PRIMARY KEY (user_id, collection_id)
+                );
+            `)
+        },
+    },
+    {
+        version: 7,
+        up(db) {
+            try { db.exec(`ALTER TABLE users ADD COLUMN first_name TEXT`) }
+            catch { /* already exists on fresh DBs */ }
+            try { db.exec(`ALTER TABLE users ADD COLUMN last_name TEXT`) }
+            catch { /* already exists on fresh DBs */ }
         },
     },
 ]

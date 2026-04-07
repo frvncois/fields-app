@@ -11,14 +11,13 @@ import {
     text,
     password,
     select,
-    confirm,
     spinner,
     isCancel,
     cancel,
 } from '@clack/prompts'
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'node:fs'
 import { resolve, join } from 'node:path'
-import { execSync, spawnSync } from 'node:child_process'
+import { execSync } from 'node:child_process'
 
 const cwd = process.cwd()
 
@@ -34,7 +33,7 @@ function readJsonFile(path) {
 }
 
 function detectFramework() {
-    const vitePath = join(cwd, 'vite.config.ts') || join(cwd, 'vite.config.js')
+    const vitePath = findViteConfig()
     if (!existsSync(vitePath)) return 'unknown'
     const content = readFileSync(vitePath, 'utf8')
     if (content.includes('@vitejs/plugin-vue')) return 'vue'
@@ -141,10 +140,8 @@ function addNpmScripts() {
     if (!pkg) return
     pkg.scripts = pkg.scripts ?? {}
     pkg.scripts['dev']                 = pkg.scripts['dev'] ?? 'vite'
-    pkg.scripts['fields:migrate']     = 'fields migrate'
-    pkg.scripts['fields:validate']    = 'fields validate'
-    pkg.scripts['fields:add-user']    = 'fields add-user'
-    pkg.scripts['fields:remove-user'] = 'fields remove-user'
+    pkg.scripts['fields:migrate']  = 'fields migrate'
+    pkg.scripts['fields:validate'] = 'fields validate'
     writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n')
 }
 
@@ -180,7 +177,7 @@ const dbChoice = await select({
 })
 if (isCancel(dbChoice)) fail('Setup cancelled.')
 
-const envVars = { FIELDS_PROJECT_NAME: projectName.trim() }
+const envVars = {}
 
 if (dbChoice === 'postgres') {
     const connStr = await text({ message: 'PostgreSQL connection string', placeholder: 'postgresql://user:pass@host:5432/db' })
@@ -255,26 +252,6 @@ if (storageChoice === 's3' || storageChoice === 'r2') {
     console.log('  ⚠  Netlify does not offer a managed database. Consider Neon (PostgreSQL) for your database.')
 }
 
-// Step 5 — Admin credentials
-const adminEmail = await text({
-    message: 'Admin email',
-    placeholder: 'you@example.com',
-    validate: v => v.includes('@') ? undefined : 'Enter a valid email',
-})
-if (isCancel(adminEmail)) fail('Setup cancelled.')
-
-const adminPw = await password({
-    message: 'Admin password (min 8 chars)',
-    validate: v => v.length >= 8 ? undefined : 'Password must be at least 8 characters',
-})
-if (isCancel(adminPw)) fail('Setup cancelled.')
-
-const adminPwConfirm = await password({
-    message: 'Confirm password',
-    validate: v => v === adminPw ? undefined : 'Passwords do not match',
-})
-if (isCancel(adminPwConfirm)) fail('Setup cancelled.')
-
 // ─── Apply everything ─────────────────────────────────────────────────────────
 
 const s = spinner()
@@ -312,25 +289,10 @@ try {
     s.stop('Migration skipped — run: npm run fields:migrate')
 }
 
-// Create the first admin user
-s.start('Creating admin account')
-const adminResult = spawnSync(
-    'node',
-    ['node_modules/@fields-cms/fields/bin/fields.js', 'add-user', '--email', adminEmail, '--password', adminPw],
-    { cwd, stdio: 'pipe' }
-)
-if (adminResult.status === 0) {
-    s.stop('Admin account created')
-} else {
-    s.stop('Could not create admin user automatically')
-    console.log('  ⚠  Could not create admin user automatically.')
-    console.log('     Run: npm run fields:add-user')
-}
-
 outro(`
   Project   ${projectName.trim()}
   Admin     http://localhost:5173/fields
-  Email     ${adminEmail}
 
   Run       npm run dev
+  Then open /fields to complete setup and create your admin account.
 `)

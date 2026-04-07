@@ -5,8 +5,6 @@
  * Usage (via npm scripts written by create-fields-cms):
  *   npm run fields:migrate
  *   npm run fields:validate
- *   npm run fields:add-user
- *   npm run fields:remove-user
  */
 import { createRequire } from 'node:module'
 import { resolve, join } from 'node:path'
@@ -65,14 +63,23 @@ async function migrate() {
         fail(`Config validation failed: ${err.message}`)
     }
 
-    const existing = db.query('SELECT name FROM collections')
+    const existing = db.query('SELECT name, label, type FROM collections')
     const existingNames = new Set(existing.map(r => r.name))
+    const existingMap = new Map(existing.map(r => [r.name, r]))
     const configNames = new Set(config.collections.map(c => c.name))
 
     const toAdd = config.collections.filter(c => !existingNames.has(c.name))
     const toRemove = [...existingNames].filter(n => !configNames.has(n))
+    // [A1-MEDIUM] Detect label/type renames for existing collections so they are not silently ignored
+    const toUpdate = config.collections.filter(c => {
+        const ex = existingMap.get(c.name)
+        if (!ex) return false
+        const newLabel = c.label ?? c.name.charAt(0).toUpperCase() + c.name.slice(1)
+        const newType = c.type ?? 'collection'
+        return ex.label !== newLabel || ex.type !== newType
+    })
 
-    if (toAdd.length === 0 && toRemove.length === 0) {
+    if (toAdd.length === 0 && toRemove.length === 0 && toUpdate.length === 0) {
         ok('Database is already in sync with fields.config.ts')
         return
     }
@@ -82,6 +89,10 @@ async function migrate() {
         console.log('  Collections to add:')
         for (const c of toAdd) console.log(`    + ${c.name}`)
     }
+    if (toUpdate.length > 0) {
+        console.log('  Collections to update (label/type changed):')
+        for (const c of toUpdate) console.log(`    ~ ${c.name}`)
+    }
     if (toRemove.length > 0) {
         console.log('  Collections to remove (destructive):')
         for (const n of toRemove) console.log(`    - ${n}`)
@@ -89,18 +100,28 @@ async function migrate() {
     console.log()
 
     if (toRemove.length > 0) {
-        const { confirm } = await import('@clack/prompts')
+        const { confirm, isCancel } = await import('@clack/prompts')
         const confirmed = await confirm({
             message: `Remove ${toRemove.length} collection(s) and ALL their entries? This cannot be undone.`,
         })
-        if (!confirmed) {
+        if (isCancel(confirmed) || !confirmed) {
             fail('Migration cancelled.')
         }
     }
 
-    // Apply additive changes immediately
+    // Apply metadata updates for existing collections
+    for (const col of toUpdate) {
+        const newLabel = col.label ?? col.name.charAt(0).toUpperCase() + col.name.slice(1)
+        const newType = col.type ?? 'collection'
+        db.run('UPDATE collections SET label = ?, type = ? WHERE name = ?', [newLabel, newType, col.name])
+        ok(`Updated collection: ${col.name}`)
+    }
+
+    // Apply additive changes
     for (const col of toAdd) {
-        db.run('INSERT OR IGNORE INTO collections (name, label, type) VALUES (?, ?, ?)',
+        db.run(
+            `INSERT INTO collections (name, label, type) VALUES (?, ?, ?)
+             ON CONFLICT(name) DO UPDATE SET label = excluded.label, type = excluded.type`,
             [col.name, col.label ?? col.name.charAt(0).toUpperCase() + col.name.slice(1), col.type ?? 'collection'])
         if (col.type === 'page') {
             const existing = db.get('SELECT id FROM entries WHERE collection_name = ?', [col.name])
@@ -138,80 +159,9 @@ async function validate() {
     }
 }
 
-// ─── fields add-user ─────────────────────────────────────────────────────────
-
-async function addUser() {
-    const args = process.argv.slice(3)
-    const emailIdx = args.indexOf('--email')
-    const pwIdx = args.indexOf('--password')
-    const emailArg = emailIdx !== -1 ? args[emailIdx + 1] : null
-    const pwArg = pwIdx !== -1 ? args[pwIdx + 1] : null
-
-    if (emailArg && pwArg) {
-        const db = await loadDb()
-        const { hashSync } = await import('bcryptjs')
-        try {
-            db.run('INSERT INTO users (email, password) VALUES (?, ?)', [emailArg, hashSync(pwArg, 12)])
-            ok(`User ${emailArg} created.`)
-        } catch (err) {
-            if (err.message?.includes('UNIQUE')) fail(`A user with email ${emailArg} already exists.`)
-            fail(err.message)
-        }
-        return
-    }
-
-    const { text, password, isCancel, intro, outro } = await import('@clack/prompts')
-    intro('  Fields — add user')
-
-    const email = await text({ message: 'Email address', validate: v => v.includes('@') ? undefined : 'Enter a valid email' })
-    if (isCancel(email)) fail('Cancelled.')
-
-    const pw = await password({ message: 'Password (min 8 chars)', validate: v => v.length >= 8 ? undefined : 'Password must be at least 8 characters' })
-    if (isCancel(pw)) fail('Cancelled.')
-
-    const pw2 = await password({ message: 'Confirm password', validate: v => v === pw ? undefined : 'Passwords do not match' })
-    if (isCancel(pw2)) fail('Cancelled.')
-
-    const db = await loadDb()
-    const { hashSync } = await import('bcryptjs')
-    try {
-        db.run('INSERT INTO users (email, password) VALUES (?, ?)', [email, hashSync(pw, 12)])
-        outro(`  User ${email} created.`)
-    } catch (err) {
-        if (err.message?.includes('UNIQUE')) fail(`A user with email ${email} already exists.`)
-        fail(err.message)
-    }
-}
-
-// ─── fields remove-user ──────────────────────────────────────────────────────
-
-async function removeUser() {
-    const { select, confirm, isCancel, intro, outro } = await import('@clack/prompts')
-    intro('  Fields — remove user')
-
-    const db = await loadDb()
-    const users = db.query('SELECT id, email FROM users ORDER BY email')
-
-    if (users.length === 0) fail('No users found.')
-    if (users.length === 1) fail('Cannot remove the last user — you would lose admin access.')
-
-    const userId = await select({
-        message: 'Select user to remove',
-        options: users.map(u => ({ value: u.id, label: u.email })),
-    })
-    if (isCancel(userId)) fail('Cancelled.')
-
-    const selectedUser = users.find(u => u.id === userId)
-    const sure = await confirm({ message: `Remove ${selectedUser.email}? This cannot be undone.` })
-    if (isCancel(sure) || !sure) fail('Cancelled.')
-
-    db.run('DELETE FROM users WHERE id = ?', [userId])
-    outro(`  User ${selectedUser.email} removed.`)
-}
-
 // ─── Dispatch ─────────────────────────────────────────────────────────────────
 
-const commands = { migrate, validate, 'add-user': addUser, 'remove-user': removeUser }
+const commands = { migrate, validate }
 
 if (!command || !(command in commands)) {
     console.error(`\n  Usage: fields <command>\n\n  Commands: ${Object.keys(commands).join(', ')}\n`)

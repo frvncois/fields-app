@@ -15,7 +15,10 @@ const emit = defineEmits<{
     settings: []
 }>()
 
-const initials = computed(() => ((props.firstName[0] ?? '') + (props.lastName[0] ?? '')).toUpperCase() || '?')
+const initials = computed(() => {
+    const i = ((props.firstName[0] ?? '') + (props.lastName[0] ?? '')).toUpperCase()
+    return i || props.email[0]?.toUpperCase() || '?'
+})
 </script>
 
 <template>

@@ -8,6 +8,7 @@ const isOpen = ref(false)
 const firstName = ref('')
 const lastName = ref('')
 const email = ref('')
+const currentPassword = ref('')
 const password = ref('')
 const passwordConfirm = ref('')
 
@@ -36,18 +37,21 @@ export function useSettingsSheet() {
         }
     }
 
-    async function savePassword(): Promise<boolean> {
-        if (!password.value || password.value !== passwordConfirm.value) return false
+    async function savePassword(): Promise<{ ok: boolean; error?: string }> {
+        if (!currentPassword.value || !password.value || password.value !== passwordConfirm.value) {
+            return { ok: false }
+        }
         try {
-            const ok = await changePassword(password.value)
-            if (ok) {
+            const result = await changePassword(currentPassword.value, password.value)
+            if (result.ok) {
+                currentPassword.value = ''
                 password.value = ''
                 passwordConfirm.value = ''
             }
-            return ok
+            return result
         } catch (e) {
             console.error('Failed to save password:', e)
-            return false
+            return { ok: false, error: 'Unexpected error' }
         }
     }
 
@@ -58,6 +62,7 @@ export function useSettingsSheet() {
         firstName,
         lastName,
         email,
+        currentPassword,
         password,
         passwordConfirm,
         darkMode,

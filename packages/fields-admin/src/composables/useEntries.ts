@@ -8,12 +8,15 @@ export type { Entry }
 
 const entries = ref<Entry[]>([])
 const listLoading = ref(false)
+const entriesTotal = ref(0)
 
 export function useEntries() {
-    async function fetchAll() {
+    async function fetchAll(params?: { limit?: number; offset?: number }) {
         listLoading.value = true
         try {
-            entries.value = await getEntries()
+            const page = await getEntries(params)
+            entries.value = page.items
+            entriesTotal.value = page.total
         } catch (e) {
             console.error('Failed to fetch entries:', e)
         } finally {
@@ -41,7 +44,7 @@ export function useEntries() {
         if (i !== -1) entries.value[i] = { ...entries.value[i]!, status }
     }
 
-    return { entries, loading: listLoading, fetchAll, fetchByCollection, remove, updateStatus }
+    return { entries, loading: listLoading, total: entriesTotal, fetchAll, fetchByCollection, remove, updateStatus }
 }
 
 // ─── Single-entry composable (for editor) ────────────────────────────────────

@@ -91,6 +91,11 @@ export async function handleChangePassword(req: Req, res: Res, db: Db, userId: n
     // [H2] Read the token before consuming the body so we can revoke it after the update.
     const token = getTokenFromCookie(req)
     const body = await readJson(req)
+
+    if (!body.currentPassword || typeof body.currentPassword !== 'string') {
+        json(res, { error: 'Current password required' }, 400)
+        return
+    }
     if (!body.password || typeof body.password !== 'string') {
         json(res, { error: 'Missing password' }, 400)
         return
@@ -99,6 +104,14 @@ export async function handleChangePassword(req: Req, res: Res, db: Db, userId: n
         json(res, { error: 'Password must be between 8 and 128 characters' }, 400)
         return
     }
+
+    // Verify current password before allowing the change
+    const user = db.get<{ password: string }>('SELECT password FROM users WHERE id = ?', [userId])
+    if (!user || !compareSync(String(body.currentPassword), user.password)) {
+        json(res, { error: 'Current password is incorrect' }, 401)
+        return
+    }
+
     db.run('UPDATE users SET password = ? WHERE id = ?', [hashSync(body.password, 12), userId])
 
     // [H2] Revoke the current session token so an attacker who obtained it before

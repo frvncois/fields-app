@@ -17,9 +17,10 @@ import {
     handleMediaUpload, handleMediaList, handleMediaItem,
     handleFolders, handleFolder,
 } from './handlers/media'
+import { handleUsers } from './handlers/users'
 import { json, parseId } from './handlers/types'
 import { LocalAdapter } from './adapters/storage/local'
-import type { FieldsConfig, FieldsOptions, DatabaseAdapter, StorageAdapter } from './types'
+import type { FieldsConfig, FieldsOptions, DatabaseAdapter, StorageAdapter, UserContext, UserPermissions } from './types'
 
 // ─── Project root detection ───────────────────────────────────────────────────
 
@@ -183,7 +184,13 @@ function serveAdmin(
             // [C1] Escape </script> sequences so a collection label cannot break out
             //      of the script block and execute arbitrary code.
             if (ext === 'html') {
-                const safeJson = JSON.stringify(config).replace(/<\/script>/gi, '<\\/script>')
+                // [C1/A3] Escape sequences that can break out of an inline script block:
+                // </script> closes the tag; U+2028/U+2029 are line terminators in JS
+                // that are illegal inside string literals before ES2019 parsers.
+                const safeJson = JSON.stringify(config)
+                    .replace(/<\/script>/gi, '<\\/script>')
+                    .replace(/\u2028/g, '\\u2028')
+                    .replace(/\u2029/g, '\\u2029')
                 const injection = `<script>window.__FIELDS_CONFIG__=${safeJson}</script>`
                 const html = content.toString('utf8').replace('</head>', `${injection}</head>`)
                 res.statusCode = 200
@@ -232,9 +239,12 @@ async function dispatch(
 
     const path = url.slice('/api/fields'.length).split('?')[0]
 
-    // [C3] Setup routes — always public
+    // [C3] Setup routes — always public, but POST is rate-limited to prevent automation
     if (path === '/setup' && req.method === 'GET') return handleSetupCheck(req, res, db)
-    if (path === '/setup' && req.method === 'POST') return handleSetupCreate(req, res, db)
+    if (path === '/setup' && req.method === 'POST') {
+        if (!checkAuthRateLimit(req, res, db)) return
+        return handleSetupCreate(req, res, db)
+    }
 
     // [C3] No users → redirect to setup
     const userCount = db.get<{ count: number }>('SELECT COUNT(*) as count FROM users')
@@ -260,7 +270,59 @@ async function dispatch(
     const revoked = db.get('SELECT 1 FROM _token_revocations WHERE jti = ?', [payload.jti])
     if (revoked) return unauthorized(res)
 
-    const userId = payload.sub
+    const numUserId = Number(payload.sub)
+    if (!Number.isInteger(numUserId) || numUserId <= 0) return unauthorized(res)
+
+    // Build UserContext — fetch role and, for editors, permissions
+    const userRow = db.get<{ id: number; role: string }>('SELECT id, role FROM users WHERE id = ?', [numUserId])
+    if (!userRow) return unauthorized(res)
+
+    const ctx: UserContext = {
+        id: userRow.id,
+        role: userRow.role === 'admin' ? 'admin' : 'editor',
+    }
+
+    if (ctx.role === 'editor') {
+        const perms = db.get<Record<string, number>>('SELECT * FROM user_permissions WHERE user_id = ?', [userRow.id])
+        const collectionGrants = new Set(
+            db.query<{ collection_id: number }>('SELECT collection_id FROM user_collection_grants WHERE user_id = ?', [userRow.id])
+                .map(r => r.collection_id)
+        )
+        const objectGrants = new Set(
+            db.query<{ collection_id: number }>('SELECT collection_id FROM user_object_grants WHERE user_id = ?', [userRow.id])
+                .map(r => r.collection_id)
+        )
+        ctx.permissions = {
+            can_create:      !!perms?.can_create,
+            can_edit:        !!perms?.can_edit,
+            can_delete:      !!perms?.can_delete,
+            can_publish:     !!perms?.can_publish,
+            can_media:       !!perms?.can_media,
+            can_settings:    !!perms?.can_settings,
+            pages_all:       !!perms?.pages_all,
+            collections_all: !!perms?.collections_all,
+            objects_all:     !!perms?.objects_all,
+            collectionGrants,
+            objectGrants,
+        } satisfies UserPermissions
+    }
+
+    // /me — returns current user's role and permissions
+    if (path === '/me' && req.method === 'GET') {
+        const me = db.get<{ email: string; first_name: string | null; last_name: string | null }>(
+            'SELECT email, first_name, last_name FROM users WHERE id = ?', [ctx.id]
+        )
+        const resp: Record<string, unknown> = {
+            id: ctx.id, email: me?.email, role: ctx.role,
+            first_name: me?.first_name ?? null, last_name: me?.last_name ?? null,
+        }
+        if (ctx.role === 'editor' && ctx.permissions) {
+            const { collectionGrants, objectGrants, ...flags } = ctx.permissions
+            resp.permissions = { ...flags, collectionGrants: [...collectionGrants], objectGrants: [...objectGrants] }
+        }
+        json(res, resp)
+        return
+    }
 
     // Expose user config to the admin SPA (requires auth)
     if (path === '/config' && req.method === 'GET') {
@@ -269,57 +331,63 @@ async function dispatch(
     }
 
     if (path === '/auth/logout' && req.method === 'POST') return handleLogout(req, res, db)
-    if (path === '/auth/password' && req.method === 'PATCH') return handleChangePassword(req, res, db, userId)
+    if (path === '/auth/password' && req.method === 'PATCH') return handleChangePassword(req, res, db, numUserId)
 
-    if (path === '/entries' || path === '/entries/') return handleEntries(req, res, db)
+    // Admin-only: user management
+    if (path === '/users' || path.startsWith('/users/')) {
+        if (ctx.role !== 'admin') { json(res, { error: 'Forbidden' }, 403); return }
+        return handleUsers(req, res, db, path, ctx.id)
+    }
+
+    if (path === '/entries' || path === '/entries/') return handleEntries(req, res, db, ctx)
 
     const entryMatch = path.match(/^\/entries\/(\d+)$/)
     if (entryMatch) {
         const id = parseId(entryMatch[1])
         if (!id) return json(res, { error: 'Invalid ID' }, 400)
-        return handleEntry(req, res, db, id)
+        return handleEntry(req, res, db, id, ctx)
     }
 
     const translateMatch = path.match(/^\/entries\/(\d+)\/translate\/([a-z]{2,5})$/)
     if (translateMatch) {
         const id = parseId(translateMatch[1])
         if (!id) return json(res, { error: 'Invalid ID' }, 400)
-        return handleTranslateEntry(req, res, db, id, translateMatch[2])
+        return handleTranslateEntry(req, res, db, id, translateMatch[2], ctx)
     }
 
-    if (path === '/collections' || path === '/collections/') return handleCollections(req, res, db)
+    if (path === '/collections' || path === '/collections/') return handleCollections(req, res, db, ctx)
 
     const colEntriesMatch = path.match(/^\/collections\/(\d+)\/entries$/)
     if (colEntriesMatch) {
         const id = parseId(colEntriesMatch[1])
         if (!id) return json(res, { error: 'Invalid ID' }, 400)
-        return handleCollectionEntries(req, res, db, id)
+        return handleCollectionEntries(req, res, db, id, ctx)
     }
 
-    if (path === '/settings' || path === '/settings/') return handleSettings(req, res, db)
+    if (path === '/settings' || path === '/settings/') return handleSettings(req, res, db, ctx)
 
     if (path === '/locales' || path === '/locales/') return handleLocales(req, res, db)
 
     const localeMatch = path.match(/^\/locales\/([a-z]{2,5})$/)
-    if (localeMatch) return handleSetLocale(req, res, db, localeMatch[1])
+    if (localeMatch) return handleSetLocale(req, res, db, localeMatch[1], ctx)
 
-    if (path === '/media/upload' && req.method === 'POST') return handleMediaUpload(req, res, db, storage)
-    if (path === '/media' || path === '/media/') return handleMediaList(req, res, db)
+    if (path === '/media/upload' && req.method === 'POST') return handleMediaUpload(req, res, db, storage, ctx)
+    if (path === '/media' || path === '/media/') return handleMediaList(req, res, db, ctx)
 
     const mediaMatch = path.match(/^\/media\/(\d+)$/)
     if (mediaMatch) {
         const id = parseId(mediaMatch[1])
         if (!id) return json(res, { error: 'Invalid ID' }, 400)
-        return handleMediaItem(req, res, db, storage, id)
+        return handleMediaItem(req, res, db, storage, id, ctx)
     }
 
-    if (path === '/folders' || path === '/folders/') return handleFolders(req, res, db)
+    if (path === '/folders' || path === '/folders/') return handleFolders(req, res, db, ctx)
 
     const folderMatch = path.match(/^\/folders\/(\d+)$/)
     if (folderMatch) {
         const id = parseId(folderMatch[1])
         if (!id) return json(res, { error: 'Invalid ID' }, 400)
-        return handleFolder(req, res, db, id)
+        return handleFolder(req, res, db, id, ctx)
     }
 
     json(res, { error: 'Not found' }, 404)
@@ -390,6 +458,9 @@ export function fieldsPlugin(options: FieldsOptions = {}): Plugin[] {
 
             db = options.db ?? createDb({ root: projectRoot })
             storage = options.storage ?? new LocalAdapter(projectRoot)
+
+            // Prune expired token revocations (tokens live 1 day, so anything older is safe to delete)
+            db.run("DELETE FROM _token_revocations WHERE revoked_at < datetime('now', '-1 day')")
             userConfig = await loadUserConfig(projectRoot, configFile)
             try { validateConfig(userConfig) } catch (err: unknown) {
                 console.warn('[fields] Config warning:', (err as Error).message)

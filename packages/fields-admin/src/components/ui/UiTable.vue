@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { ChevronUpIcon, ChevronDownIcon } from '@heroicons/vue/16/solid'
+import { DocumentTextIcon } from '@heroicons/vue/24/outline'
 import UiFilters from '@/components/ui/UiFilters.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import ItemTable from '@/components/ui/items/ItemTable.vue'
 import { useSort } from '@/composables/useSort'
 import { useFilters } from '@/composables/useFilters'
@@ -50,6 +52,8 @@ const filterDefs = computed(() => [
 ])
 
 const { sortKey, sortDir, toggleSort, applySorting } = useSort<SortKey>()
+
+const hasActiveFilters = computed(() => !!(values.search || values.type || values.status))
 
 const sortedItems = computed(() => {
     let result = [...props.items]
@@ -111,6 +115,17 @@ const columns: { label: string; key: SortKey }[] = [
                 :og-image="item.ogImage"
                 @deleted="emit('deleted', $event)"
             />
+            <div v-if="sortedItems.length === 0 && !hasActiveFilters" class="empty">
+                <DocumentTextIcon class="empty-icon" />
+                <p class="empty-title">No entries yet</p>
+                <p class="empty-text">Get started by creating your first entry.</p>
+                <UiButton v-if="canAdd" text="New entry" size="sm" @click="emit('add')" />
+            </div>
+            <div v-else-if="sortedItems.length === 0" class="empty">
+                <DocumentTextIcon class="empty-icon" />
+                <p class="empty-title">No results</p>
+                <p class="empty-text">Try adjusting your search or filters.</p>
+            </div>
         </div>
 
     </div>
@@ -161,6 +176,34 @@ const columns: { label: string; key: SortKey }[] = [
         display: flex;
         flex-direction: column;
         gap: var(--space-xs);
+
+        .empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-sm);
+            padding: var(--space-2xl) var(--space-lg);
+            text-align: center;
+
+            .empty-icon {
+                height: 2rem;
+                width: 2rem;
+                opacity: 0.25;
+            }
+
+            .empty-title {
+                font-size: var(--size-sm);
+                font-weight: 500;
+                margin: 0;
+            }
+
+            .empty-text {
+                font-size: var(--size-xs);
+                opacity: 0.5;
+                margin: 0;
+            }
+        }
     }
 }
 </style>

@@ -48,8 +48,8 @@ export async function handleSetupCreate(req: Req, res: Res, db: Db): Promise<voi
     }
 
     const { lastInsertRowid } = db.run(
-        'INSERT INTO users (email, password) VALUES (?, ?)',
-        [email, hashSync(password, 12)]
+        'INSERT INTO users (email, password, role) VALUES (?, ?, ?)',
+        [email, hashSync(password, 12), 'admin']
     )
 
     db.run(

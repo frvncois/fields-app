@@ -1,6 +1,8 @@
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import type { FieldValues } from '@/types/schema'
 import { createEntry, updateEntry } from '@/api/entries'
+
+const AUTO_SAVE_INTERVAL = 30_000 // 30 seconds
 
 const title = ref('')
 const collectionId = ref<number | null>(null)
@@ -69,6 +71,12 @@ export function useEditorState() {
         get: () => String(fieldValues.value['_slug'] ?? ''),
         set: (v) => { fieldValues.value['_slug'] = v },
     })
+
+    // Auto-save: only fires when an existing entry has a title (new entries are saved manually first)
+    const autoSaveTimer = setInterval(() => {
+        if (entryId.value && title.value.trim()) save()
+    }, AUTO_SAVE_INTERVAL)
+    onUnmounted(() => clearInterval(autoSaveTimer))
 
     return { title, collectionId, entryId, fieldValues, published, ogImage, metaTitle, metaDescription, slug, save, setEntry, reset }
 }

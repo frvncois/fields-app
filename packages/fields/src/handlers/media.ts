@@ -4,17 +4,41 @@ import Busboy from 'busboy'
 import { imageSizeFromFile } from 'image-size/fromFile'
 import type { Req, Res, Db, Storage } from './types'
 import { json, parseId, readJson } from './types'
+import type { UserContext } from '../types'
 
 const MAGIC_BYTES: Record<string, number[][]> = {
-    'image/jpeg': [[0xFF, 0xD8, 0xFF]],
-    'image/png':  [[0x89, 0x50, 0x4E, 0x47]],
-    'image/webp': [[0x52, 0x49, 0x46, 0x46]],
+    'image/jpeg':      [[0xFF, 0xD8, 0xFF]],
+    'image/png':       [[0x89, 0x50, 0x4E, 0x47]],
     'application/pdf': [[0x25, 0x50, 0x44, 0x46]],
+    'video/webm':      [[0x1A, 0x45, 0xDF, 0xA3]],
+    // MP3: ID3 tag or raw sync bytes (0xFF 0xFB/0xF3/0xF2)
+    'audio/mpeg':      [[0x49, 0x44, 0x33], [0xFF, 0xFB], [0xFF, 0xF3], [0xFF, 0xF2]],
+    // DOCX is a ZIP archive
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': [[0x50, 0x4B, 0x03, 0x04]],
 }
 
 function checkMagicBytes(buffer: Buffer, mimeType: string): boolean {
+    if (buffer.length < 12) return false
+
+    // WebP: RIFF header (bytes 0-3) + WEBP marker (bytes 8-11)
+    if (mimeType === 'image/webp') {
+        return buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46
+            && buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50
+    }
+
+    // WAV: RIFF header (bytes 0-3) + WAVE marker (bytes 8-11)
+    if (mimeType === 'audio/wav' || mimeType === 'audio/wave' || mimeType === 'audio/x-wav') {
+        return buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46
+            && buffer[8] === 0x57 && buffer[9] === 0x41 && buffer[10] === 0x56 && buffer[11] === 0x45
+    }
+
+    // MP4/QuickTime: 'ftyp' box type at bytes 4-7 (bytes 0-3 are the variable box size)
+    if (mimeType === 'video/mp4' || mimeType === 'video/quicktime') {
+        return buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70
+    }
+
     const signatures = MAGIC_BYTES[mimeType]
-    if (!signatures) return true
+    if (!signatures) return false
     const head = [...buffer.slice(0, 8)]
     return signatures.some(sig => sig.every((b, i) => head[i] === b))
 }
@@ -27,7 +51,7 @@ const ALLOWED_MIME_TYPES = new Set([
     'audio/wav', 'audio/wave', 'audio/x-wav', 'audio/mpeg',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ])
-const MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024 // 1 GB
+const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50 MB
 
 function formatWeight(bytes: number): string {
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
@@ -53,7 +77,10 @@ async function getImageDimensions(filePath: string, mime: string): Promise<strin
     }
 }
 
-export async function handleMediaUpload(req: Req, res: Res, db: Db, storage: Storage): Promise<void> {
+export async function handleMediaUpload(req: Req, res: Res, db: Db, storage: Storage, ctx: UserContext): Promise<void> {
+    if (ctx.role === 'editor' && !ctx.permissions?.can_media) {
+        json(res, { error: 'Forbidden' }, 403); return
+    }
     const bb = Busboy({ headers: req.headers, limits: { fileSize: MAX_FILE_SIZE } })
     const fields: Record<string, string> = {}
     let savedFilename = ''
@@ -88,7 +115,7 @@ export async function handleMediaUpload(req: Req, res: Res, db: Db, storage: Sto
             stream.on('data', (chunk: Buffer) => {
                 size += chunk.length
                 if (size > MAX_FILE_SIZE) {
-                    uploadError = 'File exceeds 1 GB limit'
+                    uploadError = 'File exceeds 50 MB limit'
                     stream.resume()
                     resolve()
                     return
@@ -160,23 +187,36 @@ export async function handleMediaUpload(req: Req, res: Res, db: Db, storage: Sto
     json(res, row, 201)
 }
 
-export function handleMediaList(req: Req, res: Res, db: Db): void {
+export function handleMediaList(req: Req, res: Res, db: Db, ctx: UserContext): void {
+    if (ctx.role === 'editor' && !ctx.permissions?.can_media) {
+        json(res, { error: 'Forbidden' }, 403); return
+    }
     const qs = new URLSearchParams(req.url!.split('?')[1] ?? '')
     const folderParam = qs.get('folder')
-    let rows
+    const limit = Math.min(Math.max(parseInt(qs.get('limit') ?? '200', 10) || 200, 1), 1000)
+    const offset = Math.max(parseInt(qs.get('offset') ?? '0', 10) || 0, 0)
+
+    let where = ''
+    let params: unknown[] = []
     if (folderParam === 'root') {
-        rows = db.query('SELECT * FROM media WHERE folder_id IS NULL')
+        where = 'WHERE folder_id IS NULL'
     } else if (folderParam !== null) {
         const folderId = Number(folderParam)
         if (isNaN(folderId)) { json(res, { error: 'Bad request' }, 400); return }
-        rows = db.query('SELECT * FROM media WHERE folder_id = ?', [folderId])
-    } else {
-        rows = db.query('SELECT * FROM media')
+        where = 'WHERE folder_id = ?'
+        params = [folderId]
     }
-    json(res, rows)
+
+    const total = (db.get<{ n: number }>(`SELECT COUNT(*) as n FROM media ${where}`, params))?.n ?? 0
+    const rows = db.query(`SELECT * FROM media ${where} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, limit, offset])
+    json(res, { items: rows, total, limit, offset })
 }
 
-export async function handleMediaItem(req: Req, res: Res, db: Db, storage: Storage, id: number): Promise<void> {
+export async function handleMediaItem(req: Req, res: Res, db: Db, storage: Storage, id: number, ctx: UserContext): Promise<void> {
+    if ((req.method === 'PATCH' || req.method === 'DELETE') && ctx.role === 'editor' && !ctx.permissions?.can_media) {
+        json(res, { error: 'Forbidden' }, 403); return
+    }
+
     if (req.method === 'PATCH') {
         const body = await readJson(req)
         const folderId = body.folderId === null ? null : Number(body.folderId)
@@ -200,7 +240,10 @@ export async function handleMediaItem(req: Req, res: Res, db: Db, storage: Stora
     json(res, { error: 'Method not allowed' }, 405)
 }
 
-export async function handleFolders(req: Req, res: Res, db: Db): Promise<void> {
+export async function handleFolders(req: Req, res: Res, db: Db, ctx: UserContext): Promise<void> {
+    if (req.method === 'POST' && ctx.role === 'editor' && !ctx.permissions?.can_media) {
+        json(res, { error: 'Forbidden' }, 403); return
+    }
     if (req.method === 'POST') {
         const body = await readJson(req)
         const name = typeof body.name === 'string' ? body.name.trim() : ''
@@ -219,7 +262,10 @@ export async function handleFolders(req: Req, res: Res, db: Db): Promise<void> {
     json(res, rows)
 }
 
-export function handleFolder(req: Req, res: Res, db: Db, id: number): void {
+export function handleFolder(req: Req, res: Res, db: Db, id: number, ctx: UserContext): void {
+    if (ctx.role === 'editor' && !ctx.permissions?.can_media) {
+        json(res, { error: 'Forbidden' }, 403); return
+    }
     if (req.method !== 'DELETE') {
         json(res, { error: 'Method not allowed' }, 405)
         return

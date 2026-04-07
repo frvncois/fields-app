@@ -61,13 +61,16 @@ Request dispatch order in `dispatch()`:
 4. `POST /auth/login` — public, login rate limiter (5 attempts / 15 min, SQLite)
 5. General rate limiter — 300 req/min per IP, `_rate_limits` table (key prefix `auth:`)
 6. JWT verification — `getTokenFromCookie(req)`, checks `_token_revocations` for jti
-7. Route handlers
+7. Build `UserContext` — fetches role from `users`; for editors also loads `user_permissions` + collection/object grants into `ctx.permissions` (grants stored as `Set<number>`)
+8. `GET /me` — returns `{ id, email, role, permissions? }` (grants serialized as arrays)
+9. `GET/POST /users`, `GET/DELETE /users/:id`, `PUT /users/:id/permissions`, `PATCH /users/:id/role` — admin-only, delegated to `handleUsers`
+10. All other route handlers receive `ctx: UserContext`
 
-**`src/types.ts`** — `CollectionSchema` has `name` (required), `label?`, `type?: 'page' | 'collection' | 'object'`, `fields` (required). `FieldsConfig`, `FieldDef`, `FieldValues`, `FieldType`, `FieldsOptions`, `DatabaseAdapter`, `StorageAdapter`, `Migration`.
+**`src/types.ts`** — `CollectionSchema` has `name` (required), `label?`, `type?: 'page' | 'collection' | 'object'`, `fields` (required). `FieldsConfig`, `FieldDef`, `FieldValues`, `FieldType`, `FieldsOptions`, `DatabaseAdapter`, `StorageAdapter`, `Migration`. RBAC types: `UserRole = 'admin' | 'editor'`; `UserPermissions` (boolean action flags + `collectionGrants: Set<number>` / `objectGrants: Set<number>`); `UserContext = { id, role, permissions? }` — `permissions` is only present for editors (undefined means full admin access).
 
 **`src/auth.ts`** — `signToken`, `verifyToken`, `getBearer` (reads httpOnly cookie). Tokens are 1-day JWTs with a `jti` UUID claim. `FIELDS_JWT_SECRET` check is in `configureServer()` (not module scope) so it doesn't crash during frontend builds. Cookie is `HttpOnly; SameSite=Strict; Secure` in production only.
 
-**`src/db.ts`** — `createDb(opts?: { root?: string })` creates SQLite DB at `{root}/fields.db` (override via `FIELDS_DB_PATH`). Runs `createSchema` → `migrate` → `seedIfEmpty` on every startup. `seedIfEmpty` is a no-op — the DB starts empty. Setup wizard creates the first user; `syncCollections()` populates collections. Internal tables: `_migrations`, `_rate_limits`, `_token_revocations`.
+**`src/db.ts`** — `createDb(opts?: { root?: string })` creates SQLite DB at `{root}/fields.db` (override via `FIELDS_DB_PATH`). Runs `createSchema` → `migrate` on every startup. The DB starts empty; setup wizard creates the first user; `syncCollections()` populates collections. Internal tables: `_migrations`, `_rate_limits`, `_token_revocations`. User/permission tables: `users` (id, email, password, role, first_name, last_name), `user_permissions` (one row per editor; all flags default 0), `user_collection_grants` / `user_object_grants` (many-to-many; cascade delete on user or collection removal).
 
 **`src/handlers/setup.ts`** — `handleSetupCreate` reads `projectName`, `firstName`, `lastName`, `email`, `password` from the request body (all validated). After creating the user, writes all four values to the `settings` table and sets the JWT cookie — the user is automatically logged in after setup, no separate login needed.
 
@@ -75,7 +78,9 @@ Request dispatch order in `dispatch()`:
 
 **`src/utils/ip.ts`** — Single `getClientIp(req)` shared by plugin and auth handler. Uses `socket.remoteAddress`; reads rightmost `X-Forwarded-For` when `FIELDS_TRUST_PROXY=true`.
 
-**`src/handlers/`** — One file per resource: `auth`, `collections`, `entries`, `locales`, `media`, `settings`, `setup`. `types.ts` exports `Req`, `Res`, `Db`, `Storage`, `json()`, `readJson()` (1 MB body limit, throws `{ status: 413 }` on breach).
+**`src/handlers/`** — One file per resource: `auth`, `collections`, `entries`, `locales`, `media`, `settings`, `setup`, `users`. `types.ts` exports `Req`, `Res`, `Db`, `Storage`, `json()`, `readJson()` (1 MB body limit, throws `{ status: 413 }` on breach).
+
+**`src/handlers/users.ts`** — CRUD for users (admin-only). `handleCreateUser` hashes password with bcrypt (rounds 12), inserts an empty `user_permissions` row so editors start with zero access. `handleUpdatePermissions` replaces the full permissions row + collection/object grant rows atomically. `handleChangeRole` / `handleDeleteUser` both guard against removing the last admin.
 
 **`src/adapters/db/`** — `sqlite.ts` (SQLiteAdapter, default), `postgres.ts` (PgAdapter), `turso.ts` (TursoAdapter). Postgres and Turso are async; their sync interface methods (`get`, `query`, `run`, `exec`, `migrate`) throw — use the `*Async()` variants instead.
 
@@ -89,11 +94,15 @@ Vue 3, Vite, TypeScript, Vue Router. Builds to `../fields/dist/admin/` with `bas
 
 **`src/main.ts`** — Fonts imported as JS (not CSS `@import`) to avoid Vite/postcss failures. Lenis smooth scroll initialised here. `validateConfig(config)` called at boot.
 
-**`src/router/index.ts`** — Five named routes: `setup`, `login`, `dashboard`, `editor`, `list`. The async `beforeEach` guard calls `GET /api/fields/setup`; if `needsSetup` is true, all routes redirect to `setup`. Call `markSetupComplete()` after setup form success to reset without a page reload.
+**`src/router/index.ts`** — Five named routes: `setup`, `login`, `dashboard`, `editor`, `list`. The async `beforeEach` guard calls `GET /api/fields/setup`; if `needsSetup` is true, all routes redirect to `setup`. Call `markSetupComplete()` after setup form success to reset without a page reload. For authenticated routes, `beforeEach` also calls `fetchCurrentUser()` (idempotent — only fetches once per session) to load role and permissions into `useAuth` state.
 
 **`virtual:fields-config`** — In dev, the virtual module re-exports the user's actual `fields.config.ts`. In production, it exports `window.__FIELDS_CONFIG__` (injected into `<head>` by the plugin when serving the HTML). Declared in `env.d.ts`.
 
 **`src/api/client.ts`** — Use `apiFetch` for all API calls (`credentials: 'include'`). On 401, clears auth hint and redirects to `/login`. Auth hint (`fields_auth` localStorage flag) is non-sensitive — the actual credential is the httpOnly cookie. Exception: `src/api/auth.ts` `login()` uses raw `fetch` to avoid a redirect loop.
+
+**`src/api/users.ts`** — `getMe()`, `getUsers()`, `getUser(id)`, `createUser(data)`, `updatePermissions(id, perms)`, `changeRole(id, role)`, `deleteUser(id)`. All mutation functions throw on non-OK responses (error message from `{ error }` JSON body).
+
+**RBAC in the UI** — `SharedNav` computes `visiblePages`, `visibleCollections`, `visibleObjects` using `isAdmin()` and `permissions.value` from `useAuth`. Admins always see everything; editors see only what their grants allow. `showSettings` gated on `isAdmin() || permissions.value?.can_settings`. `UsersView` (`src/views/UsersView.vue`) is the user management page (admin-only); not yet registered as a named route.
 
 **Global state** — Composables in `src/composables/` use module-level refs (outside the function) for shared singleton state. No Pinia.
 
@@ -102,6 +111,7 @@ Key composables:
 - `useEditorState` — editor form; `save()` derives `status` from `published.value` internally; SEO fields are writable computeds over `fieldValues['_metaTitle']` etc.
 - `useAlerts` — `confirm(opts)` / `prompt(opts)`, returns a Promise. `variant: 'danger'` shows TrashIcon.
 - `useToast` — `toast(message, type)`, auto-dismisses after 4 s.
+- `useAuth` — exposes `isAuthenticated`, `role`, `permissions`, `userId`, `isAdmin()`. `fetchCurrentUser()` calls `GET /api/fields/me` once per session (idempotent via `meFetched` flag). `logout()` clears all auth state and resets `meFetched`.
 
 **`EditorField` data flow** — Receives `:values` (FieldValues), emits `update:values` with a new object. Never mutates the prop. Repeater sub-fields follow the same pattern recursively.
 

@@ -22,11 +22,19 @@ import {
 const {
     isOpen,
     firstName, lastName, email,
-    password, passwordConfirm,
+    currentPassword, password, passwordConfirm,
     darkMode,
     saveProfile,
     savePassword,
 } = useSettingsSheet()
+
+const passwordError = ref<string | null>(null)
+
+async function handleSavePassword() {
+    passwordError.value = null
+    const result = await savePassword()
+    if (!result.ok && result.error) passwordError.value = result.error
+}
 
 const { userFirst, userLast, userEmail } = useAppSettings()
 const { isAdmin, userId } = useAuth()
@@ -206,15 +214,17 @@ async function handleSaveProfile() {
                 </section>
                 <section>
                     <label>Password</label>
+                    <UiInput v-model="currentPassword" label="Current password" placeholder="••••••••" type="password" />
                     <UiInput v-model="password" label="New password" placeholder="••••••••" type="password" />
                     <UiInput v-model="passwordConfirm" label="Confirm password" placeholder="••••••••" type="password" />
                     <p v-if="passwordMismatch()" class="field-error">Passwords do not match.</p>
+                    <p v-if="passwordError" class="field-error">{{ passwordError }}</p>
                     <div class="action">
                         <UiButton
                             text="Save password"
                             size="sm"
-                            :disabled="!password || passwordMismatch()"
-                            @click="savePassword"
+                            :disabled="!currentPassword || !password || passwordMismatch()"
+                            @click="handleSavePassword"
                         />
                     </div>
                 </section>

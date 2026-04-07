@@ -1,13 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import LayoutApp from '@/layouts/LayoutApp.vue'
-import LayoutAuth from '@/layouts/LayoutAuth.vue'
-import DashboardView from '@/views/DashboardView.vue'
-import EditorView from '@/views/EditorView.vue'
-import ListView from '@/views/ListView.vue'
-import LoginView from '@/views/LoginView.vue'
-import SetupView from '@/views/SetupView.vue'
 import { useAuth } from '@/composables/useAuth'
 import { checkSetup } from '@/api/setup'
+
+const LayoutApp   = () => import('@/layouts/LayoutApp.vue')
+const LayoutAuth  = () => import('@/layouts/LayoutAuth.vue')
+const DashboardView = () => import('@/views/DashboardView.vue')
+const EditorView  = () => import('@/views/EditorView.vue')
+const ListView    = () => import('@/views/ListView.vue')
+const LoginView   = () => import('@/views/LoginView.vue')
+const SetupView   = () => import('@/views/SetupView.vue')
 
 // Cache setup status — once the first user exists it can never go back to true
 let setupChecked = false

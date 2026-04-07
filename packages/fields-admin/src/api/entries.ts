@@ -16,8 +16,11 @@ export type Entry = {
     data?: Record<string, unknown>
 }
 
-export async function getEntries(): Promise<Entry[]> {
-    const res = await apiFetch('/api/fields/entries')
+export type PaginatedEntries = { items: Entry[]; total: number; limit: number; offset: number }
+
+export async function getEntries(params?: { limit?: number; offset?: number }): Promise<PaginatedEntries> {
+    const qs = params ? `?limit=${params.limit ?? 200}&offset=${params.offset ?? 0}` : ''
+    const res = await apiFetch(`/api/fields/entries${qs}`)
     if (!res.ok) throw new Error(`${res.status}`)
     return res.json()
 }

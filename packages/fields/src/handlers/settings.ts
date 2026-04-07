@@ -1,9 +1,13 @@
 import type { Req, Res, Db } from './types'
 import { json, readJson } from './types'
+import type { UserContext } from '../types'
 
 const ALLOWED_KEYS = ['user_first', 'user_last', 'user_email', 'project_name', 'dark_mode'] as const
 
-export async function handleSettings(req: Req, res: Res, db: Db): Promise<void> {
+export async function handleSettings(req: Req, res: Res, db: Db, ctx: UserContext): Promise<void> {
+    if (ctx.role === 'editor' && !ctx.permissions?.can_settings) {
+        json(res, { error: 'Forbidden' }, 403); return
+    }
     if (req.method === 'PATCH') {
         const body = await readJson(req)
         for (const key of ALLOWED_KEYS) {

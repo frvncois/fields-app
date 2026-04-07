@@ -30,6 +30,14 @@ export type Migration = {
     up: (db: DatabaseAdapter) => void | Promise<void>
 }
 
+/**
+ * Synchronous database adapter interface used by SQLiteAdapter (the default).
+ *
+ * NOTE: PgAdapter and TursoAdapter are inherently async and will throw if these
+ * sync methods are called directly. Use their `*Async()` variants instead.
+ * These adapters cannot currently be used as drop-in replacements for the
+ * default SQLiteAdapter without code changes in the handlers.
+ */
 export interface DatabaseAdapter {
     /** Return a single row or undefined. */
     get<T = Record<string, unknown>>(sql: string, params?: unknown[]): T | undefined
@@ -52,6 +60,33 @@ export interface StorageAdapter {
     delete(path: string): Promise<void>
     /** Resolve a stored path to a public URL string. */
     getUrl(path: string): string
+}
+
+// ─── Role & permission types ──────────────────────────────────────────────────
+
+export type UserRole = 'admin' | 'editor'
+
+export type UserPermissions = {
+    can_create: boolean
+    can_edit: boolean
+    can_delete: boolean
+    can_publish: boolean
+    can_media: boolean
+    can_settings: boolean
+    pages_all: boolean
+    collections_all: boolean
+    objects_all: boolean
+    /** Set<number> server-side for O(1) lookup. Serialized as number[] in API responses. */
+    collectionGrants: Set<number>
+    /** Set<number> server-side for O(1) lookup. Serialized as number[] in API responses. */
+    objectGrants: Set<number>
+}
+
+export type UserContext = {
+    id: number
+    role: UserRole
+    /** Only present for editors — undefined means full admin access */
+    permissions?: UserPermissions
 }
 
 // ─── Plugin options ───────────────────────────────────────────────────────────

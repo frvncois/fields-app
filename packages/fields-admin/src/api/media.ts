@@ -10,8 +10,15 @@ export type MediaItem = {
     folder_id: number | null
 }
 
-export async function getMedia(): Promise<MediaItem[]> {
-    const res = await apiFetch('/api/fields/media')
+export type PaginatedMedia = { items: MediaItem[]; total: number; limit: number; offset: number }
+
+export async function getMedia(params?: { folder?: string | number; limit?: number; offset?: number }): Promise<PaginatedMedia> {
+    const qs = new URLSearchParams()
+    if (params?.folder != null) qs.set('folder', String(params.folder))
+    if (params?.limit != null) qs.set('limit', String(params.limit))
+    if (params?.offset != null) qs.set('offset', String(params.offset))
+    const query = qs.toString() ? `?${qs}` : ''
+    const res = await apiFetch(`/api/fields/media${query}`)
     if (!res.ok) throw new Error(`${res.status}`)
     return res.json()
 }
