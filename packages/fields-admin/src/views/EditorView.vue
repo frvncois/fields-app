@@ -65,8 +65,12 @@ watch(currentEntry, (entry) => {
 
 async function handleTranslate(localeCode: string) {
     if (!currentEntry.value) return
-    const translation = await createTranslation(currentEntry.value.id, localeCode)
-    router.push({ name: 'editor', params: { id: translation.id } })
+    try {
+        const translation = await createTranslation(currentEntry.value.id, localeCode)
+        router.push({ name: 'editor', params: { id: translation.id } })
+    } catch {
+        toast('Failed to create translation', 'error')
+    }
 }
 </script>
 

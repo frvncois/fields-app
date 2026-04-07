@@ -61,13 +61,19 @@ router.beforeEach(async (to) => {
 
     if (to.name === 'setup') return { name: 'login' }
 
-    const { isAuthenticated } = useAuth()
+    const { isAuthenticated, fetchCurrentUser } = useAuth()
     if (to.meta.requiresAuth && !isAuthenticated.value) {
         return { name: 'login' }
     }
     if (to.name === 'login' && isAuthenticated.value) {
         return { name: 'dashboard' }
     }
+
+    // Load role/permissions once per session (fetchCurrentUser is idempotent)
+    if (isAuthenticated.value) {
+        await fetchCurrentUser()
+    }
+
 })
 
 export function markSetupComplete(): void {

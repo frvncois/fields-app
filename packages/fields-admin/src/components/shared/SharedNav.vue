@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import FieldsIcon from '@/assets/FieldsIcon.vue'
 import UiNav from '@/components/ui/UiNav.vue'
 import UiUser from '@/components/ui/UiUser.vue'
@@ -13,15 +14,13 @@ import { useRouter } from 'vue-router'
 import { useSettingsSheet } from '@/composables/useSettingsSheet'
 import { useStorage } from '@/composables/useStorage'
 import { useCollections } from '@/composables/useCollections'
-import { useAppSettings } from '@/composables/useAppSettings'
 import { useAuth } from '@/composables/useAuth'
 import { getEntriesByCollection } from '@/api/entries'
 
 const { open: openSettings } = useSettingsSheet()
 const { open: openStorage, isOpen: isStorageOpen } = useStorage()
 const { grouped } = useCollections()
-const { userFirst, userLast, userEmail } = useAppSettings()
-const { logout } = useAuth()
+const { logout, role, permissions, isAdmin, firstName, lastName, email } = useAuth()
 const router = useRouter()
 
 function handleLogout() {
@@ -41,6 +40,32 @@ async function openPage(collectionId: number) {
         router.push({ name: 'editor', query: { collection: collectionId } })
     }
 }
+
+// ─── Permission-aware nav filtering ──────────────────────────────────────────
+
+const showSettings = true
+
+const visiblePages = computed(() => {
+    if (isAdmin()) return grouped.value.pages
+    if (!permissions.value?.pages_all) return []
+    return grouped.value.pages
+})
+
+const visibleCollections = computed(() => {
+    if (isAdmin()) return grouped.value.collections
+    const perms = permissions.value
+    if (!perms) return []
+    if (perms.collections_all) return grouped.value.collections
+    return grouped.value.collections.filter(c => perms.collectionGrants.includes(c.id))
+})
+
+const visibleObjects = computed(() => {
+    if (isAdmin()) return grouped.value.objects
+    const perms = permissions.value
+    if (!perms) return []
+    if (perms.objects_all) return grouped.value.objects
+    return grouped.value.objects.filter(c => perms.objectGrants.includes(c.id))
+})
 </script>
 
 <template>
@@ -56,31 +81,36 @@ async function openPage(collectionId: number) {
                 <UiNav title="Storage" :icon="PhotoIcon" :action="openStorage" :active="isStorageOpen" />
 
                 <UiNav
+                    v-if="isAdmin() || visiblePages.length > 0"
                     title="Pages"
                     :icon="DocumentTextIcon"
-                    :children="grouped.pages.length
-                        ? grouped.pages.map(c => ({ title: c.label, action: () => openPage(c.id) }))
+                    :children="visiblePages.length
+                        ? visiblePages.map(c => ({ title: c.label, action: () => openPage(c.id) }))
                         : [{ title: 'No pages yet' }]"
                 />
                 <UiNav
+                    v-if="isAdmin() || visibleCollections.length > 0"
                     title="Collections"
                     :icon="FolderIcon"
-                    :children="grouped.collections.length
-                        ? grouped.collections.map(c => ({ title: c.label, to: toList(c.id) }))
+                    :children="visibleCollections.length
+                        ? visibleCollections.map(c => ({ title: c.label, to: toList(c.id) }))
                         : [{ title: 'No collections yet' }]"
                 />
                 <UiNav
+                    v-if="isAdmin() || visibleObjects.length > 0"
                     title="Objects"
                     :icon="PaperClipIcon"
-                    :children="grouped.objects.length
-                        ? grouped.objects.map(c => ({ title: c.label, to: toList(c.id) }))
+                    :children="visibleObjects.length
+                        ? visibleObjects.map(c => ({ title: c.label, to: toList(c.id) }))
                         : [{ title: 'No objects yet' }]"
                 />
+
             </div>
             <UiUser
-                :first-name="userFirst"
-                :last-name="userLast"
-                :email="userEmail"
+                :first-name="firstName ?? ''"
+                :last-name="lastName ?? ''"
+                :email="email ?? ''"
+                :show-settings="showSettings"
                 @logout="handleLogout"
                 @settings="openSettings"
             />

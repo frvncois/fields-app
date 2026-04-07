@@ -7,6 +7,7 @@ const props = defineProps<{
     firstName: string
     lastName: string
     email: string
+    showSettings?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -14,7 +15,7 @@ const emit = defineEmits<{
     settings: []
 }>()
 
-const initials = computed(() => `${props.firstName[0]}${props.lastName[0]}`.toUpperCase())
+const initials = computed(() => ((props.firstName[0] ?? '') + (props.lastName[0] ?? '')).toUpperCase() || '?')
 </script>
 
 <template>
@@ -28,7 +29,7 @@ const initials = computed(() => `${props.firstName[0]}${props.lastName[0]}`.toUp
         </div>
         <div class="actions">
             <UiButton text="Logout" variant="outline" size="sm" style="flex: 1; justify-content: center" @click="emit('logout')" />
-            <UiButton variant="outline" size="icon" :icon="Cog6ToothIcon" @click="emit('settings')" />
+            <UiButton v-if="props.showSettings !== false" variant="outline" size="icon" :icon="Cog6ToothIcon" @click="emit('settings')" />
         </div>
     </div>
 </template>
